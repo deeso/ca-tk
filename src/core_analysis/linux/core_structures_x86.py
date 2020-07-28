@@ -7,17 +7,172 @@ import ctypes
 #     int si_errno;           /* errno */
 # };
 
-class ELF_SIGINFO(ctypes.Structure):
+class NOTE_SIGINFO(ctypes.Structure):
     _fields_ = [
         ('si_signo', ctypes.c_int),   
         ('si_code', ctypes.c_int),
         ('si_errno', ctypes.c_int),   
     ]
 
+
+# from /usr/include/x86_64-linux-gnu/bits/types/siginfo_t.h
+# class SIGINFO(ctypes.Structure):
+#     _fields_ = [
+#         ('si_signo', ctypes.c_int),   
+#         ('si_code', ctypes.c_int),
+#         ('si_value', ctypes.c_int),
+#         ('si_errno', ctypes.c_int),
+#         ('si_pid', ctypes.c_int),
+#         ('si_uid', ctypes.c_int),
+#         ('si_addr', ctypes.c_ulong),
+#         ('si_status', ctypes.c_int),
+#         ('si_band', ctypes.c_int)
+#     ]
+
+class siginfo_kill(ctypes.Structure):
+    _fields_ = [
+        ('si_pid', ctypes.c_int),   
+        ('si_uid', ctypes.c_int),
+    ]
+
+class siginfo_timer(ctypes.Structure):
+    _fields_ = [
+        ('si_tid', ctypes.c_int),   
+        ('si_overrun', ctypes.c_int),
+    ]
+
+class siginfo_rt(ctypes.Structure):
+    _fields_ = [
+        ('si_pid', ctypes.c_int),   
+        ('si_uid', ctypes.c_int),
+        ('si_sigval', ctypes.c_int),
+    ]
+
+class siginfo_sigchld(ctypes.Structure):
+    _fields_ = [
+        ('si_pid', ctypes.c_int),   
+        ('si_uid', ctypes.c_int),
+        ('si_status', ctypes.c_int),
+        ('si_utime', ctypes.c_ulong),
+        ('si_stime', ctypes.c_ulong),
+    ]
+
+
+class siginfo_sigsys64(ctypes.Structure):
+    _fields_ = [
+        ('si_call_addr', ctypes.c_ulonglong),   
+        ('syscall', ctypes.c_uint),
+        ('arch', ctypes.c_uint),
+    ]
+
+class siginfo_sigsys(ctypes.Structure):
+    _fields_ = [
+        ('si_call_addr', ctypes.c_ulong),   
+        ('syscall', ctypes.c_uint),
+        ('arch', ctypes.c_uint),
+    ]
+
+class siginfo_sigpoll(ctypes.Structure):
+    _fields_ = [
+        ('si_band', ctypes.c_ulonglong),   
+        ('fd', ctypes.c_int),
+    ]
+
+class siginfo_addr_bnd(ctypes.Structure):
+    _fields_ = [
+        ('_lower', ctypes.c_ulong),   
+        ('_upper', ctypes.c_ulong),
+    ]
+
+class siginfo_addr_bnd64(ctypes.Structure):
+    _fields_ = [
+        ('_lower', ctypes.c_ulonglong),   
+        ('_upper', ctypes.c_ulonglong),
+    ]
+
+class siginfo_addr_bnd(ctypes.Structure):
+    _fields_ = [
+        ('_lower', ctypes.c_ulong),   
+        ('_upper', ctypes.c_ulong),
+    ]
+
+class siginfo_addr_bnd64(ctypes.Structure):
+    _fields_ = [
+        ('_lower', ctypes.c_ulonglong),   
+        ('_upper', ctypes.c_ulonglong),
+    ]
+
+class siginfo_bounds(ctypes.Union):
+    _fields_ = [
+        ("_addr_bnd", siginfo_addr_bnd),   
+        ('_pkey', ctypes.c_ulong),
+    ]
+
+class siginfo_addr_bnd64(ctypes.Structure):
+    _fields_ = [
+        ("_addr_bnd", siginfo_addr_bnd64),   
+        ('_pkey', ctypes.c_ulong),
+    ]
+
+class siginfo_sigfault(ctypes.Structure):
+    _fields_ = [
+        ('si_addr', ctypes.c_ulong),   
+        ('si_addr_lsb', ctypes.c_ushort),
+        ('_bounds', siginfo_addr_bnd),
+    ]
+
+class siginfo_sigfault64(ctypes.Structure):
+    _fields_ = [
+        ('si_addr', ctypes.c_ulong),   
+        ('si_addr_lsb', ctypes.c_ushort),
+        ('_bounds', siginfo_addr_bnd64),
+    ]
+
+class siginfo_signal_info(ctypes.Union):
+    _fields_ = [
+        ('_pad', ctypes.c_int*128),
+        ('_kill', siginfo_kill),
+        ('_timer', siginfo_timer),
+        ('_rt', siginfo_sigpoll),
+        ('_sigchld', siginfo_sigchld),
+        ('_sigfault', siginfo_sigfault),
+        ('_sigpoll', siginfo_sigpoll),
+        ('_sigsys', siginfo_sigsys),
+    ]
+
+class siginfo_signal_info64(ctypes.Union):
+    _fields_ = [
+        ('_pad', ctypes.c_int*128),
+        ('_kill', siginfo_kill),
+        ('_timer', siginfo_timer),
+        ('_rt', siginfo_sigpoll),
+        ('_sigchld', siginfo_sigchld),
+        ('_sigfault', siginfo_sigfault64),
+        ('_sigpoll', siginfo_sigpoll),
+        ('_sigsys', siginfo_sigsys64),
+    ]
+
+
+class SIGINFO(ctypes.Structure):
+    _fields_ = [
+        ('si_signo', ctypes.c_int),   
+        ('si_errno', ctypes.c_int),
+        ('si_code', ctypes.c_int),
+        ('_sigfields', siginfo_signal_info)
+    ]
+
+class SIGINFO64(ctypes.Structure):
+    _fields_ = [
+        ('si_signo', ctypes.c_int),   
+        ('si_errno', ctypes.c_int),
+        ('si_code', ctypes.c_int),
+        ('_sigfields', siginfo_signal_info64)
+    ]
 # struct prstatus32_timeval
 #   {
 #     int tv_sec;
 #     int tv_usec;
+
 #   };
 
 class PRSTATUS32_TIMEVAL(ctypes.Structure):
@@ -90,10 +245,41 @@ class USER_REGS32_STRUCT(ctypes.Structure):
 #     int pr_fpvalid;                     /* True if math copro being used.  */
 #   };
 
+# Heh, this is interesting, looks like the prstatus_t struct might have
+# additional info in it. 
+# https://code.woboq.org/linux/linux/include/uapi/linux/elfcore.h.html
+# struct elf_prstatus
+# {
+# #if 0
+#     long    pr_flags;   /* XXX Process flags */
+#     short   pr_why;     /* XXX Reason for process halt */
+#     short   pr_what;    /* XXX More detailed reason */
+# #endif
+class ELF_PRSTATUS32_WITH_UNUSED(ctypes.Structure):
+    _fields_ = [
+        ('pr_flags', ctypes.c_uint),
+        ('pr_why', ctypes.c_ushort),
+        ('pr_what', ctypes.c_ushort),
+
+        ('pr_info', NOTE_SIGINFO),
+        ('pr_cursig', ctypes.c_short),
+        ('pr_sigpend', ctypes.c_uint),
+        ('pr_sighold', ctypes.c_uint),
+        ('pr_pid', ctypes.c_int),
+        ('pr_ppid', ctypes.c_int),
+        ('pr_pgrp', ctypes.c_int),
+        ('pr_sid', ctypes.c_int),
+        ('pr_utime', PRSTATUS32_TIMEVAL),
+        ('pr_stime', PRSTATUS32_TIMEVAL),
+        ('pr_cutime', PRSTATUS32_TIMEVAL),
+        ('pr_cstime', PRSTATUS32_TIMEVAL),
+        ('pr_reg', USER_REGS32_STRUCT),
+        ('pr_fpvalid', ctypes.c_int),
+    ]
 
 class ELF_PRSTATUS32(ctypes.Structure):
     _fields_ = [
-        ('pr_info', ELF_SIGINFO),
+        ('pr_info', NOTE_SIGINFO),
         ('pr_cursig', ctypes.c_short),
         ('pr_sigpend', ctypes.c_uint),
         ('pr_sighold', ctypes.c_uint),
@@ -141,6 +327,8 @@ class ELF_PRSTATUS32(ctypes.Structure):
 #   uint64_t gs;
 # };
 
+
+
 class USER_REGSX32_STRUCT(ctypes.Structure):
     _fields_ = [
         ('r15', ctypes.c_ulonglong),
@@ -172,9 +360,41 @@ class USER_REGSX32_STRUCT(ctypes.Structure):
         ('gs', ctypes.c_ulonglong),
     ]
 
+# Heh, this is interesting, looks like the prstatus_t struct might have
+# additional info in it. 
+# https://code.woboq.org/linux/linux/include/uapi/linux/elfcore.h.html
+# struct elf_prstatus
+# {
+# #if 0
+#     long    pr_flags;   /* XXX Process flags */
+#     short   pr_why;     /* XXX Reason for process halt */
+#     short   pr_what;    /* XXX More detailed reason */
+# #endif
+class ELF_PRSTATUS32X_WITH_UNUSED(ctypes.Structure):
+    _fields_ = [
+        ('pr_flags', ctypes.c_uint),
+        ('pr_why', ctypes.c_ushort),
+        ('pr_what', ctypes.c_ushort),
+        # ('pr_unknown', ctypes.c_ulonglong),
+        ('pr_info', NOTE_SIGINFO),
+        ('pr_cursig', ctypes.c_short),
+        ('pr_sigpend', ctypes.c_uint),
+        ('pr_sighold', ctypes.c_uint),
+        ('pr_pid', ctypes.c_int),
+        ('pr_ppid', ctypes.c_int),
+        ('pr_pgrp', ctypes.c_int),
+        ('pr_sid', ctypes.c_int),
+        ('pr_utime', PRSTATUS32_TIMEVAL),
+        ('pr_stime', PRSTATUS32_TIMEVAL),
+        ('pr_cutime', PRSTATUS32_TIMEVAL),
+        ('pr_cstime', PRSTATUS32_TIMEVAL),
+        ('pr_reg', USER_REGSX32_STRUCT),
+        ('pr_fpvalid', ctypes.c_int),
+    ]
+
 class ELF_PRSTATUS32X(ctypes.Structure):
     _fields_ = [
-        ('pr_info', ELF_SIGINFO),
+        ('pr_info', NOTE_SIGINFO),
         ('pr_cursig', ctypes.c_short),
         ('pr_sigpend', ctypes.c_uint),
         ('pr_sighold', ctypes.c_uint),
@@ -507,3 +727,114 @@ class AMD64_XSAVE(ctypes.Structure):
                 ('xmm14', ctypes.c_ulonglong*2),
                 ('xmm15', ctypes.c_ulonglong*2),
                ]
+
+
+SIGNAL_LABELS = {
+    1: 'SIGHUP',
+    2: 'SIGINT',
+    3: 'SIGQUIT',
+    4: 'SIGILL',
+    5: 'SIGTRAP',
+    6: 'SIGABRT',
+    6: 'SIGIOT',
+    7: 'SIGBUS',
+    8: 'SIGFPE',
+    9: 'SIGKILL',
+    10: 'SIGUSR1',
+    11: 'SIGSEGV',
+    12: 'SIGUSR2',
+    13: 'SIGPIPE',
+    14: 'SIGALRM',
+    15: 'SIGTERM',
+    16: 'SIGSTKFLT',
+    17: 'SIGCHLD',
+    18: 'SIGCONT',
+    19: 'SIGSTOP',
+    20: 'SIGTSTP',
+    21: 'SIGTTIN',
+    22: 'SIGTTOU',
+    23: 'SIGURG',
+    24: 'SIGXCPU',
+    25: 'SIGXFSZ',
+    26: 'SIGVTALRM',
+    27: 'SIGPROF',
+    28: 'SIGWINCH',
+    29: 'SIGIO-SIGPOLL',
+    30: 'SIGPWR',
+    31: 'SIGSYS-SIGUNUSED',
+    34: 'SIGRTMIN',
+    35: 'SIGRTMIN+1',
+    36: 'SIGRTMIN+2',
+    37: 'SIGRTMIN+3',
+    38: 'SIGRTMIN+4',
+    39: 'SIGRTMIN+5',
+    40: 'SIGRTMIN+6',
+    41: 'SIGRTMIN+7',
+    42: 'SIGRTMIN+8',
+    43: 'SIGRTMIN+9',
+    44: 'SIGRTMIN+10',
+    45: 'SIGRTMIN+11',
+    46: 'SIGRTMIN+12',
+    47: 'SIGRTMIN+13',
+    48: 'SIGRTMIN+14',
+    49: 'SIGRTMIN+15',
+    50: 'SIGRTMAX-14',
+    51: 'SIGRTMAX-13',
+    52: 'SIGRTMAX-12',
+    53: 'SIGRTMAX-11',
+    54: 'SIGRTMAX-10',
+    55: 'SIGRTMAX-9',
+    56: 'SIGRTMAX-8',
+    57: 'SIGRTMAX-7',
+    58: 'SIGRTMAX-6',
+    59: 'SIGRTMAX-5',
+    60: 'SIGRTMAX-4',
+    61: 'SIGRTMAX-3',
+    62: 'SIGRTMAX-2',
+    63: 'SIGRTMAX-1',
+    64: 'SIGRTMAX',
+
+}
+
+SIGNAL_ATTR = {
+    9: '_kill',
+    17: '_sigchld',
+    4 : '_sigfault',
+    8 : '_sigfault',
+    11 : '_sigfault',
+    7 : '_sigfault',
+    29: '_sigpoll',
+    31: '_sigsys',
+    34: '_rt',
+    35: '_rt',
+    36: '_rt',
+    37: '_rt',
+    38: '_rt',
+    39: '_rt',
+    40: '_rt',
+    41: '_rt',
+    42: '_rt',
+    43: '_rt',
+    44: '_rt',
+    45: '_rt',
+    46: '_rt',
+    47: '_rt',
+    48: '_rt',
+    49: '_rt',
+    50: '_rt',
+    51: '_rt',
+    52: '_rt',
+    53: '_rt',
+    54: '_rt',
+    55: '_rt',
+    56: '_rt',
+    57: '_rt',
+    58: '_rt',
+    59: '_rt',
+    60: '_rt',
+    61: '_rt',
+    62: '_rt',
+    63: '_rt',
+    64: '_rt',
+}
+

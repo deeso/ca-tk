@@ -1,6 +1,7 @@
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import NoteSection
 from .core_structures_x86 import *
+import io
 
 
 
@@ -44,17 +45,74 @@ class FileAddrRange(AddrRange):
 
 class ElfCore(object):
 
-    def __init__(self, filename: str=None, 
-                       iobytes: bytes=None,
+    def __init__(self, core_filename: str=None, 
+                       core_data: bytes=None,
+                       core_io: io.BytesIO=None,
                        files_location: list=None,
                        files_bytes: dict=None):
         
         self.physical_ranges = []
         self.virtual_ranges = []
 
+        if core_filename is None and core_data is None and io_back is None:
+            raise Exception("ELF File data or file not provided")
+
+
+        self.core_io = core_io
+        if self.core_io is None:
+            self.core_io = open(core_filename, 'rb') if filename is not None \
+                                                else io.BytesIO(core_data) 
+
+
+
+        self.elf = ELFFile(self.core_io)
+
+        # parse out each relevant program hdr and segment
+        self.elf_sections = [i for i in self.elf.iter_sections()]
+        self.elf_segments = [i for i in self.elf.iter_segments()]
+        self.pt_loads = self.get_pt_loads()
+        self.notes = self.get_notes()
+
         self.page_size = 4096
         # map pages to a specific range
         self.virtual_cache = dict()
+
+    def get_notes(self):
+        if hasattr(self, 'notes'):
+            return self.notes
+        
+        pt_note = self.get_pt_notes()[0]
+        self.notes = [n for n in pt_note.iter_notes()]   
+
+    def get_pt_loads(self):
+        return [i for i in self.elf_segments if i.header.p_type == 'PT_LOAD']
+
+    def get_pt_notes(self):
+        return [i for i in self.elf_segments if i.header.p_type == 'PT_NOTE']
+
+    def get_prstatus_notes(self, notes):
+        return [i for i in notes if i['n_type'] == 'NT_PRSTATUS' or i['n_type'] == 1]
+
+    def get_fpregset_notes(self, notes):
+        return [i for i in notes if i['n_type'] == 'NT_FPREGSET' or i['n_type'] == 2]
+
+    def get_prpsinfo_notes(self, notes):
+        return [i for i in notes if i['n_type'] == 'NT_PRPSINFO' or i['n_type'] == 3]
+
+    def get_taskstruct_notes(self, notes):
+        return [i for i in notes if i['n_type'] == 'NT_TASKSTRUCT' or i['n_type'] == 4]
+
+    def get_auxv_notes(self, notes):
+        return [i for i in notes if i['n_type'] == 'NT_AUXV' or i['n_type'] == 4]
+
+    def get_siginfo_notes(self, notes):
+        return [i for i in notes if i['n_type'] == 'NT_SIGINFO' or i['n_type'] == 0x53494749]
+
+    def get_file_notes(self, notes):
+        return [i for i in notes if i['n_type'] == 'NT_FILE' or i['n_type'] == 0x46494c45]
+
+    def get_xstate_notes(self, notes):
+        return [i for i in notes if i['n_type'] == 'NT_X86_XSTATE' or i['n_type'] == 0x202]        
 
 
     def contains_physical(self, offset) -> bytes:

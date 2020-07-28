@@ -1,7 +1,10 @@
 import copy
 import ctypes
 
-from .core_structures_x86 import USER_REGSX32_STRUCT, USER_REGS32_STRUCT, AMD64_XSAVE
+from .core_structures_x86 import USER_REGSX32_STRUCT, USER_REGS32_STRUCT, 
+                                 ELF_PRSTATUS32X, ELF_PRSTATUS32X_WITH_UNUSED,
+                                 ELF_PRSTATUS32, ELF_PRSTATUS32_WITH_UNUSED,
+                                 AMD64_XSAVE, SIGINFO
 
 MASK_64_BITS = 0xffffffffffffffff
 MASK_16_BITS = 0xffff
@@ -26,27 +29,33 @@ def handle_pyelftools_not_prstatusx_wierdness(note):
     return None
 
 def extract_prstatus_info(note):
-    struct_klass = ELF_PRSTATUS32
-    ssz = ctypes.sizeof(struct_klass)
-    if note.get('n_type', '') == 'NT_PRSTATUS':
-        reg_data = bytes([ord(i) for i in note['n_desc']])
-        if len(reg_data) >= ssz:
-            return bytes_to_struct(reg_data[-ssz:], struct_klass)
-    return None
-
-def extract_prstatusx_info(note):
     struct_klass = ELF_PRSTATUS32X
     ssz = ctypes.sizeof(struct_klass)
     if note.get('n_type', '') == 'NT_PRSTATUS':
         reg_data = bytes([ord(i) for i in note['n_desc']])
-        if len(reg_data) >= ssz:
-            return bytes_to_struct(reg_data[-ssz:], struct_klass)
+        if len(reg_data) == ctypes.sizeof(ELF_PRSTATUS32X):
+            return bytes_to_struct(reg_data, ELF_PRSTATUS32X)
+        elif len(reg_data) == ctypes.sizeof(ELF_PRSTATUS32X_WITH_UNUSED):
+            return bytes_to_struct(reg_data, ELF_PRSTATUS32X_WITH_UNUSED)
+        elif len(reg_data) == ctypes.sizeof(ELF_PRSTATUS32_WITH_UNUSED):
+            return bytes_to_struct(reg_data, ELF_PRSTATUS32_WITH_UNUSED)
+        elif len(reg_data) == ctypes.sizeof(ELF_PRSTATUS32):
+            return bytes_to_struct(reg_data, ELF_PRSTATUS32)
     return None
 
 def extract_x86_state_info(note):
     struct_klass = AMD64_XSAVE
     ssz = ctypes.sizeof(struct_klass)
     if note.get('n_type', '') == 514 or note.get('n_type', '') == 'NT_X86_XSTATE' :
+        reg_data = bytes([ord(i) for i in note['n_desc']])
+        if len(reg_data) >= ssz:
+            return bytes_to_struct(reg_data, struct_klass)
+    return None
+
+def extract_siginfo_info(note):
+    struct_klass = SIGINFO
+    ssz = ctypes.sizeof(struct_klass)
+    if note.get('n_type', '') == 0x53494749 or note.get('n_type', '') == 'NT_SIGINFO' :
         reg_data = bytes([ord(i) for i in note['n_desc']])
         if len(reg_data) >= ssz:
             return bytes_to_struct(reg_data, struct_klass)
@@ -60,16 +69,6 @@ def json_serialize_struct(strct):
             r[f] = json_serialize_struct(v)
         else:
             r[f] = v
-    return r
-
-def serialize_prstatusx_note(note, idx=0):
-    s = extract_prstatusx_info(note)
-    r = json_serialize_struct(s) if s is not None else {}
-    for k in note:
-        if k == 'n_desc':
-            continue
-        r[k] = note[k]
-    r['idx'] = idx
     return r
 
 
@@ -101,11 +100,40 @@ def serialize_x86_state_note(note, idx=0):
     r['n_type'] = 'NT_X86_XSTATE,'
     return r
 
-def serialize_prstatusx_notes(notes):
+def serialize_prstatus_notes(notes):
     prstatusx_notes = []
     idx = 0
     for note in notes:
         if note.get('n_type', '') == 'NT_PRSTATUS':
-            prstatusx_notes.append(serialize_prstatusx_note(note, idx))
+            prstatusx_notes.append(serialize_prstatus_note(note, idx))
             idx += 1
     return prstatusx_notes
+
+def serialize_prstatus_note(note, idx=0):
+    s = extract_prstatus_info(note)
+    r = json_serialize_struct(s) if s is not None else {}
+    for k in note:
+        if k == 'n_desc':
+            continue
+        r[k] = note[k]
+    r['idx'] = idx
+    return r
+
+
+def serialize_siginfo_note(note, idx=0):
+    s = extract_siginfo_info(note)
+    r = json_serialize_struct(s) if s is not None else {}
+    for k in note:
+        if k == 'n_desc':
+            continue
+        r[k] = note[k]
+    snum = r['si_signo']
+    if snum in SIGNAL_LABELS:
+        r['signal'] = SIGNAL_LABELS[snum]
+        if snum in SIGNAL_ATTR:
+            attr = SIGNAL_ATTR[snum]
+            l = json_serialize_struct(getattr(s['_sigfields'], attr))
+            if l:
+                r.update(l)
+    r['idx'] = idx
+    return r
