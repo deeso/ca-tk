@@ -4,7 +4,8 @@ import ctypes
 from .core_structures_x86 import USER_REGSX32_STRUCT, USER_REGS32_STRUCT, 
                                  ELF_PRSTATUS32X, ELF_PRSTATUS32X_WITH_UNUSED,
                                  ELF_PRSTATUS32, ELF_PRSTATUS32_WITH_UNUSED,
-                                 AMD64_XSAVE, SIGINFO
+                                 AMD64_XSAVE, SIGINFO, siginfo_signal_info64, 
+                                 siginfo_signal_info
 
 MASK_64_BITS = 0xffffffffffffffff
 MASK_16_BITS = 0xffff
@@ -52,8 +53,8 @@ def extract_x86_state_info(note):
             return bytes_to_struct(reg_data, struct_klass)
     return None
 
-def extract_siginfo_info(note):
-    struct_klass = SIGINFO
+def extract_siginfo_info(note, is_amd64=True):
+    struct_klass = SIGINFO if not is_amd64 else SIGINFO64
     ssz = ctypes.sizeof(struct_klass)
     if note.get('n_type', '') == 0x53494749 or note.get('n_type', '') == 'NT_SIGINFO' :
         reg_data = bytes([ord(i) for i in note['n_desc']])
@@ -120,8 +121,8 @@ def serialize_prstatus_note(note, idx=0):
     return r
 
 
-def serialize_siginfo_note(note, idx=0):
-    s = extract_siginfo_info(note)
+def serialize_siginfo_note(note, idx=0, is_amd64=True):
+    s = extract_siginfo_info(note, is_amd64)
     r = json_serialize_struct(s) if s is not None else {}
     for k in note:
         if k == 'n_desc':
@@ -135,5 +136,6 @@ def serialize_siginfo_note(note, idx=0):
             l = json_serialize_struct(getattr(s['_sigfields'], attr))
             if l:
                 r.update(l)
+        del r['_sigfields']['_pad']
     r['idx'] = idx
     return r

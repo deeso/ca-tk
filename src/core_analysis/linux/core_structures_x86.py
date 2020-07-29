@@ -130,7 +130,7 @@ class siginfo_sigfault64(ctypes.Structure):
 
 class siginfo_signal_info(ctypes.Union):
     _fields_ = [
-        ('_pad', ctypes.c_int*128),
+        ('_pad', ctypes.c_uint*29),
         ('_kill', siginfo_kill),
         ('_timer', siginfo_timer),
         ('_rt', siginfo_sigpoll),
@@ -142,7 +142,7 @@ class siginfo_signal_info(ctypes.Union):
 
 class siginfo_signal_info64(ctypes.Union):
     _fields_ = [
-        ('_pad', ctypes.c_int*128),
+        ('_pad', ctypes.c_uint*28),
         ('_kill', siginfo_kill),
         ('_timer', siginfo_timer),
         ('_rt', siginfo_sigpoll),
