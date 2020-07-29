@@ -5,7 +5,8 @@ from .core_structures_x86 import USER_REGSX32_STRUCT, USER_REGS32_STRUCT,
                                  ELF_PRSTATUS32X, ELF_PRSTATUS32X_WITH_UNUSED,
                                  ELF_PRSTATUS32, ELF_PRSTATUS32_WITH_UNUSED,
                                  AMD64_XSAVE, SIGINFO, siginfo_signal_info64, 
-                                 siginfo_signal_info, auxv_t, auxv_t_64
+                                 siginfo_signal_info, auxv_t, auxv_t_64,
+                                 I387_FXSAVE
 
 MASK_64_BITS = 0xffffffffffffffff
 MASK_16_BITS = 0xffff
@@ -52,9 +53,20 @@ class ExtractNoteDesc(object):
     @classmethod
     def extract_x86_state_info(cls, note, is_amd64=True):
         #FIXME intentionally throw an error here, not sure we can handle i386 in the same way
-        struct_klass = AMD64_XSAVE if is_amd64 else None
+        struct_klass = AMD64_XSAVE if is_amd64 else I387_FXSAVE
         ssz = ctypes.sizeof(struct_klass)
         if note.get('n_type', '') == 514 or note.get('n_type', '') == 'NT_X86_XSTATE' :
+            reg_data = bytes([ord(i) for i in note['n_desc']])
+            if len(reg_data) >= ssz:
+                return bytes_to_struct(reg_data, struct_klass)
+        return None
+
+    @classmethod
+    def extract_fpreg_state_info(cls, note, is_amd64=True):
+        #FIXME intentionally throw an error here, not sure we can handle i386 in the same way
+        struct_klass = AMD64_XSAVE if is_amd64 else I387_FXSAVE
+        ssz = ctypes.sizeof(struct_klass)
+        if note.get('n_type', '') == 514 or note.get('n_type', '') == 'NT_FPREGSET' :
             reg_data = bytes([ord(i) for i in note['n_desc']])
             if len(reg_data) >= ssz:
                 return bytes_to_struct(reg_data, struct_klass)
@@ -85,6 +97,40 @@ class ExtractNoteDesc(object):
 
 
 class SerializeNotes(object):
+    @classmethod
+    def serialize_fpregset_note(cls, note, idx=0):
+        s = ExtractNoteDesc.extract_fpreg_state_info(note)
+        r = json_serialize_struct(s) if s is not None else {}
+
+        # serialize st* and xmm*
+        keys = ["st{}".format(i) for i in range(0, 8)] + \
+               ["xmm{}".format(i) for i in range(0, 16)]
+        
+        for k in keys:
+            a = getattr(s, k)
+            if k.find('st') == 0:
+                v = int("0x{:016x}{:016x}".format(a[1] & MASK_16_BITS, a[0] ), 16)
+                raw_v = int("0x{:016x}{:016x}".format(a[1], a[0] ), 16)
+                # fix me value needs to remove 
+                r[k] = v
+                r[k+'_raw'] = raw_v
+            else:
+                v = int("0x{:016x}{:016x}".format(a[1], a[0]), 16)
+                r[k] = v
+
+        for k in note:
+            if k == 'n_desc':
+                continue
+            r[k] = note[k]
+        r['idx'] = idx
+        r['type'] = 'NT_X86_XSTATE'
+        r['idx'] = idx
+        r['name'] = note['n_name']
+        r['offset'] = note['n_offset']
+        r['descsz'] = note['n_descsz']
+        r['size'] = note['n_size']
+
+        return r
 
     @classmethod
     def serialize_x86_state_note(cls, note, idx=0):

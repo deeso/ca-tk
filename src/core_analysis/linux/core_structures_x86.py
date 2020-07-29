@@ -728,6 +728,97 @@ class AMD64_XSAVE(ctypes.Structure):
                 ('xmm14', ctypes.c_ulonglong*2),
                 ('xmm15', ctypes.c_ulonglong*2),
                ]
+# struct i387_fxsave_struct {
+#     u16         cwd; /* Control Word            */
+#     u16         swd; /* Status Word         */
+#     u16         twd; /* Tag Word            */
+#     u16         fop; /* Last Instruction Opcode     */
+#     union {
+#         struct {
+#             u64 rip; /* Instruction Pointer     */
+#             u64 rdp; /* Data Pointer            */
+#         };
+#         struct {
+#             u32 fip; /* FPU IP Offset           */
+#             u32 fcs; /* FPU IP Selector         */
+#             u32 foo; /* FPU Operand Offset      */
+#             u32 fos; /* FPU Operand Selector        */
+#         };
+#     };
+#     u32         mxcsr;      /* MXCSR Register State */
+#     u32         mxcsr_mask; /* MXCSR Mask       */
+
+#     /* 8*16 bytes for each FP-reg = 128 bytes:          */
+#     u32         st_space[32];
+
+#     /* 16*16 bytes for each XMM-reg = 256 bytes:            */
+#     u32         xmm_space[64];
+
+#     u32         padding[12];
+
+#     union {
+#         u32     padding1[12];
+#         u32     sw_reserved[12];
+#     };
+
+class I387_FXSAVE_ip(ctypes.Structure):
+    _fields_ = [
+        ('rip', ctypes.c_ulonglong),
+        ('rdp', ctypes.c_ulonglong),
+    ]
+
+class I387_FXSAVE_fop(ctypes.Structure):
+    _fields_ = [
+        ('fip', ctypes.c_ulong),
+        ('fcs', ctypes.c_ulong),
+        ('foo', ctypes.c_ulong),
+        ('fos', ctypes.c_ulong),
+    ]
+
+class I387_FXSAVE_op(ctypes.Union):
+    _fields_ = [
+        ('ip', I387_FXSAVE_ip),
+        ('fop', I387_FXSAVE_fop),
+    ]
+
+# Based on linux kernel code https://elixir.bootlin.com/linux/v3.0.101/source/arch/x86/include/asm/processor.h
+class I387_FXSAVE(ctypes.Structure):
+    _fields_ = [
+        ('cwd', ctypes.c_ushort),
+        ('swd', ctypes.c_ushort),
+        ('twd', ctypes.c_ushort),
+        ('fop', ctypes.c_ushort),
+        ('op', I387_FXSAVE_op),
+        ('mxcsr', ctypes.c_ulong),
+        ('mxcsr_mask', ctypes.c_ulong),
+        ('st0', ctypes.c_ulonglong*2),
+        ('st1', ctypes.c_ulonglong*2),
+        ('st2', ctypes.c_ulonglong*2),
+        ('st3', ctypes.c_ulonglong*2),
+        ('st4', ctypes.c_ulonglong*2),
+        ('st5', ctypes.c_ulonglong*2),
+        ('st6', ctypes.c_ulonglong*2),
+        ('st7', ctypes.c_ulonglong*2),
+        ('xmm0', ctypes.c_ulonglong*2),
+        ('xmm1', ctypes.c_ulonglong*2),
+        ('xmm2', ctypes.c_ulonglong*2),
+        ('xmm3', ctypes.c_ulonglong*2),
+        ('xmm4', ctypes.c_ulonglong*2),
+        ('xmm5', ctypes.c_ulonglong*2),
+        ('xmm6', ctypes.c_ulonglong*2),
+        ('xmm7', ctypes.c_ulonglong*2),
+        ('xmm8', ctypes.c_ulonglong*2),
+        ('xmm9', ctypes.c_ulonglong*2),
+        ('xmm10', ctypes.c_ulonglong*2),
+        ('xmm11', ctypes.c_ulonglong*2),
+        ('xmm12', ctypes.c_ulonglong*2),
+        ('xmm13', ctypes.c_ulonglong*2),
+        ('xmm14', ctypes.c_ulonglong*2),
+        ('xmm15', ctypes.c_ulonglong*2),
+        ('padding1', ctypes.c_ulong*12),
+        ('sw_reserved', ctypes.c_ulong*12),
+    ]
+
 
 
 SIGNAL_LABELS = {
@@ -851,7 +942,7 @@ AUX_TYPES = {
     7:"AT_BASE", # /* base address of interpreter */
     8:"AT_FLAGS", # /* flags */
     9:"AT_ENTRY", # /* entry point of program */
-    0:"AT_NOTELF", #    /* program is not ELF */
+    10:"AT_NOTELF", #    /* program is not ELF */
     11:"AT_UID", #    /* real uid */
     12:"AT_EUID", #    /* effective uid */
     13:"AT_GID", #    /* real gid */
