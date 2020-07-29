@@ -116,8 +116,6 @@ class ElfCore(object):
 
 
     def contains_physical(self, offset) -> bytes:
-        
-
         for mr in self.physical_ranges:
             if offset in mr:
                 return True

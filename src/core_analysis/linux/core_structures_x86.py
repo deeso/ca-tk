@@ -410,6 +410,7 @@ class ELF_PRSTATUS32X(ctypes.Structure):
         ('pr_fpvalid', ctypes.c_int),
     ]
 
+
 # If the "orig_rax" register contains a value >= 0,
 # it is interpreted as the system call number
 # that the kernel is supposed to restart.
@@ -838,3 +839,57 @@ SIGNAL_ATTR = {
     64: '_rt',
 }
 
+
+AUX_TYPES = {
+    0:"AT_NULL", # /* end of vector */
+    1:"AT_IGNORE", # /* entry should be ignored */
+    2:"AT_EXECFD", # /* file descriptor of program */
+    3:"AT_PHDR", # /* program headers for program */
+    4:"AT_PHENT", # /* size of program header entry */
+    5:"AT_PHNUM", # /* number of program headers */
+    6:"AT_PAGESZ", # /* system page size */
+    7:"AT_BASE", # /* base address of interpreter */
+    8:"AT_FLAGS", # /* flags */
+    9:"AT_ENTRY", # /* entry point of program */
+    0:"AT_NOTELF", #    /* program is not ELF */
+    11:"AT_UID", #    /* real uid */
+    12:"AT_EUID", #    /* effective uid */
+    13:"AT_GID", #    /* real gid */
+    14:"AT_EGID", #    /* effective gid */
+    15:"AT_PLATFORM", #  /* string identifying CPU for optimizations */
+    16:"AT_HWCAP", #    /* arch dependent hints at CPU capabilities */
+    17:"AT_CLKTCK", #    /* frequency at which times() increments */
+    23:"AT_SECURE", #   /* secure mode boolean */
+    24:"AT_BASE_PLATFORM", # /* string identifying real platform, may differ from AT_PLATFORM. */
+    25:"AT_RANDOM", #    /* address of 16 random bytes */
+    26:"AT_HWCAP2", #    /* extension of AT_HWCAP */
+    31:"AT_EXECFN", #   /* filename of program */
+    32:'AT_SYSINFO',
+    33:'AT_SYSINFO_EHDR',
+
+    18:'AT_RESERVED, Investigate, unknown',
+    19:'AT_RESERVED, Investigate, unknown',
+    20:'AT_RESERVED, Investigate, unknown',
+    21:'AT_RESERVED, Investigate, unknown',
+    22:'AT_RESERVED, Investigate, unknown',
+    
+    27:"WARNING: Investigate, unknown",
+    28:"WARNING: Investigate, unknown",
+    29:"WARNING: Investigate, unknown",
+    30:"WARNING: Investigate, unknown",
+}
+
+
+# http://articles.manugarg.com/aboutelfauxiliaryvectors
+# https://github.com/torvalds/linux/blob/v5.4/include/uapi/linux/auxvec.h
+class auxv_t(ctypes.Structure):
+    _fields_ = [
+        ('a_type', ctypes.c_ulong),
+        ('a_val', ctypes.c_ulong),
+    ]
+
+class auxv_t_64(ctypes.Structure):
+    _fields_ = [
+        ('a_type', ctypes.c_ulonglong),
+        ('a_val', ctypes.c_ulonglong),
+    ]
