@@ -84,7 +84,6 @@ class ExtractNoteDesc(object):
         return auxv
 
 
-
 class SerializeNotes(object):
 
     @classmethod
@@ -113,7 +112,13 @@ class SerializeNotes(object):
                 continue
             r[k] = note[k]
         r['idx'] = idx
-        r['n_type'] = 'NT_X86_XSTATE,'
+        r['type'] = 'NT_X86_XSTATE'
+        r['idx'] = idx
+        r['name'] = note['n_name']
+        r['offset'] = note['n_offset']
+        r['descsz'] = note['n_descsz']
+        r['size'] = note['n_size']
+
         return r
 
     @classmethod
@@ -135,6 +140,11 @@ class SerializeNotes(object):
                 continue
             r[k] = note[k]
         r['idx'] = idx
+        r['type'] = note['n_type']
+        r['name'] = note['n_name']
+        r['offset'] = note['n_offset']
+        r['descsz'] = note['n_descsz']
+        r['size'] = note['n_size']
         return r
 
     @classmethod
@@ -154,19 +164,35 @@ class SerializeNotes(object):
                 if l:
                     r.update(l)
             del r['_sigfields']['_pad']
+        
         r['idx'] = idx
+        r['type'] = note['n_type']
+        r['name'] = note['n_name']
+        r['offset'] = note['n_offset']
+        r['descsz'] = note['n_descsz']
+        r['size'] = note['n_size']
         return r
 
     @classmethod
     def serialize_auxv_note(cls, note, is_amd64=True):
         auxv = ExtractNoteDesc.extract_auxv_info(note, is_amd64)
         s_auxv = []
-
+        r = {}
+        idx = 0
         for _av in auxv:
             av = json_serialize_struct(_av)
             av['type'] = AUX_TYPES.get(_av.a_type, "INVALID")
+            av['idx'] = idx
             s_auxv.append(av)
-        return s_auxv
+            idx += 1
+        
+        r['auxv'] = s_auxv
+        r['type'] = note['n_type']
+        r['name'] = note['n_name']
+        r['offset'] = note['n_offset']
+        r['descsz'] = note['n_descsz']
+        r['size'] = note['n_size']
+        return r
 
     @classmethod
     def serialize_siginfo_note(cls, note, idx=0, is_amd64=True):
@@ -186,4 +212,33 @@ class SerializeNotes(object):
                     r.update(l)
             del r['_sigfields']['_pad']
         r['idx'] = idx
+        r['type'] = note['n_type']
+        r['name'] = note['n_name']
+        r['offset'] = note['n_offset']
+        r['descsz'] = note['n_descsz']
+        r['size'] = note['n_size']
+        return r
+
+    @classmethod
+    def serialize_file_note(cls, note, idx=0, is_amd64=True):
+        r = {}
+        note_desc_data = note['n_desc'] 
+        filenames = note_desc_data['filename']
+        elf_entries = note_desc_data['Elf_Nt_File_Entry']
+        
+        r['num_map_entries'] = note_desc_data['num_map_entries']
+        r['page_size'] = note_desc_data['page_size']
+        r['type'] = note['n_type']
+        r['name'] = note['n_name']
+        r['offset'] = note['n_offset']
+        r['descsz'] = note['n_descsz']
+        r['size'] = note['n_size']
+
+        memory_map = []
+        for fname, _info in zip(filenames, elf_entries):
+            info = {k:v for k, v in _info.items()}
+            info['filename'] = fname
+            memory_map.append(info)
+
+        r['memory_map'] = memory_map
         return r
