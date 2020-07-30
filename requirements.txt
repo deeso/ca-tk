@@ -1,0 +1,3 @@
+ipython
+wheel
+git+https://github.com/deeso/ma-tk@master#egg=ma-tk

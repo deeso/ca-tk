@@ -1,71 +1,56 @@
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import NoteSection
 from .core_structures_x86 import *
-import io
+from memory_analysis.manager import Manager
+from .. load import Elf
 
-
-
-class AddrRange(object):
-    pass
-
-class CoreAddrRange(AddrRange):
-
-    def __init__(self, vstart: int, pstart: int, size:int=0, io_back=None):
-        # io_back could be a file or io.bytes object
-        if end is None:
-            end = start + size
-
-        self.vstart = vstart
-        self.pstart = pstart
-        self.io_back = io_back
-
-        self.vend = end
-        self.size = size
-
-    def __in__(self, value: int)
-        if value < end and start <= value:
-            return True
-        return False
-
-class FileAddrRange(AddrRange):
-
-    def __init__(self, vstart: int, pstart: int, end:int =None, size:int=0):
-        if end is None:
-            end = start + size
-
-        self.vstart = start
-        self.vend = end
-        self.size = size
-
-    def __in__(self, value: int)
-        if value < end and start <= value:
-            return True
-        return False
-
+# Steps to mapping in files
+# 1. Parse the core format
+# 2. Extract relevant data points
+# 3. Map relevant parts into memory
+# 4. Load relevant supporting parts into memory
+# 5. Perform analysis
 
 class ElfCore(object):
 
+    def load_elf(self, core_filename: str=None, 
+                       core_data: bytes=None,
+                       inmemory_only=False,
+                       zip_filename: str =None):
+
+        if core_data is not None:
+            self.core_io, self.elf = Elf.from_bytes(core_data)
+            self.source = "bytes"
+        elif zip_filename is not None and Elf.is_zip(zip_filename):
+            self.core_io, self.elf = Elf.from_zip(zip_filename, 
+                                                  core_filename, 
+                                                  inmemory_only)
+            self.source = "zip://{}".format(zip_filename)
+            core_filename = self.core_io.name
+        elif core_filename is not None:
+            self.core_io, self.elf = Elf.from_file(core_filename, 
+                                      inmemory_only)
+            self.source = "file://{}".format(core_filename)
+
+        if self.core_io is None or self.elf is None:
+            raise Exception("Unable to load the core file for analysis")
+
+
     def __init__(self, core_filename: str=None, 
                        core_data: bytes=None,
-                       core_io: io.BytesIO=None,
                        files_location: list=None,
-                       files_bytes: dict=None):
+                       files_bytes: dict=None,
+                       inmemory_only=False,
+                       zip_filename: str=None):
+        
+        self.core_io = None
+        self.elf = None
+        self.source = None
+        self.load_elf(core_filename, core_data, inmemory_only, zip_filename)
+
         
         self.physical_ranges = []
         self.virtual_ranges = []
-
-        if core_filename is None and core_data is None and io_back is None:
-            raise Exception("ELF File data or file not provided")
-
-
-        self.core_io = core_io
-        if self.core_io is None:
-            self.core_io = open(core_filename, 'rb') if filename is not None \
-                                                else io.BytesIO(core_data) 
-
-
-
-        self.elf = ELFFile(self.core_io)
 
         # parse out each relevant program hdr and segment
         self.elf_sections = [i for i in self.elf.iter_sections()]
@@ -76,6 +61,7 @@ class ElfCore(object):
         self.page_size = 4096
         # map pages to a specific range
         self.virtual_cache = dict()
+        self.mgr = Manager()
 
     def get_notes(self):
         if hasattr(self, 'notes'):
@@ -152,6 +138,9 @@ class ElfCore(object):
         # if address is not none, look up address and return back the range
         # if offset is not none, look up offset and return back the range
         # if the io_back is not none, look up the io_back and return the range
+        pass
+
+    def map_threads(self):
         pass
 
     def get_process(self, pid=None):

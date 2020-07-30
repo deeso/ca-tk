@@ -32,8 +32,9 @@ pt_loads = [i for i in segments if i.header.p_type == 'PT_LOAD']
 
 pt_notes = [i for i in segments if i.header.p_type == 'PT_NOTE']
 pt_note = pt_notes[0]
-notes = [n for n in pt_note.iter_notes()]                             
+notes = [n for n in pt_note.iter_notes()]
 
+aux_notes = [n for n in pt_note.iter_notes() if i['n_desc'] == 'NT_AUXV']
 # NT_PRPSINFO 
 #notes[0].keys() => dict_keys(['n_namesz', 'n_descsz', 'n_type', 'n_offset', 'n_name', 'n_desc', 'n_size'])
 #notes[0]['n_desc'].keys() => dict_keys(['pr_state', 'pr_sname', 'pr_zomb', 'pr_nice', 'pr_flag', 'pr_uid', 'pr_gid', 'pr_pid', 'pr_ppid', 'pr_pgrp', 'pr_sid', 'pr_fname', 'pr_psargs'])  
