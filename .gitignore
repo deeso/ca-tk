@@ -1,4 +1,8 @@
 coreanalysis-venv
+sample/ipython-core-filling-memory.zip
+sample/ipython-core-not-all.31971.zip
+sample/ipython-needle-haystack.26749.zip
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

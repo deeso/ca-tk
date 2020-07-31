@@ -7,7 +7,7 @@ class Elf(object):
 
     @classmethod
     def is_zip(cls, filename):
-        if not os.exists(filename):
+        if not os.path.exists(filename):
             return None
 
         try:
@@ -19,7 +19,7 @@ class Elf(object):
 
     @classmethod
     def from_zip(cls, zipname, filename=None, inmemory=False):
-        if zipname is None or not os.exists(zipname):
+        if zipname is None or not os.path.exists(zipname):
             return None, None
 
         zf = zipfile.ZipFile(zipname)
@@ -30,8 +30,7 @@ class Elf(object):
             filename = names[0]
         if filename not in names:
             return None, None
-        fd = zf.read(filname)
-        if inmemory:
+        fd = zf.open(filename)
         if inmemory:
             result = cls.from_bytes(fd.read())
             fd.close()
@@ -41,7 +40,7 @@ class Elf(object):
 
     @classmethod
     def from_file(cls, filename=None, inmemory=False):
-        if filename is None or not os.exists(filename):
+        if filename is None or not os.path.exists(filename):
             return None, None
         fd = open(filename, 'rb')
         if inmemory:
@@ -52,7 +51,7 @@ class Elf(object):
 
     @classmethod
     def from_bytes(cls, data):
-        if filename is None or not os.exists(filename):
+        if not isinstance(data, bytes):
             return None, None
         fd = io.BytesIO(data)
         return fd, ELFFile(fd)
