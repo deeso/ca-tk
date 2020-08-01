@@ -1,8 +1,5 @@
-from .util import MASK_64_BITS, MASK_16_BITS
-
 MASK_64_BITS = 0xffffffffffffffff
 MASK_16_BITS = 0xffff
-
 
 SIGNAL_LABELS = {
     1: 'SIGHUP',
@@ -429,4 +426,90 @@ AMD64_SYSCALL = {
   277:"AMD64_SYS_SYNC_FILE_RANGE",
   278:"AMD64_SYS_VMSPLICE",
   279:"AMD64_SYS_MOVE_PAGES",
+}
+
+
+THREAD_MAPPING = {
+    'pr_cstime':'cstime',
+    'pr_cursig':'cursig',
+    'pr_cutime':'cutime',
+    'pr_flags':'flags',
+    'pr_fpvalid':'fpvalid',
+    'pr_pgrp':'pgrp',
+    'pr_pid':'pid',
+    'pr_ppid':'ppid',
+    'pr_reg':'regs',
+    'pr_sid':'sid',
+    'pr_sighold':'sighold',
+    'pr_sigpend':'sigpend',
+    'pr_stime':'stime',
+    'pr_utime':'utime',
+    'pr_what':'what',
+    'pr_why':'why',
+    'fp_ctrl': 'fp_ctrl',
+    'fp_stat': 'fp_stat',
+    'fp_tag': 'fp_tag',
+    'rsvrd': 'rsvrd',
+    'fp_opcode': 'fp_opcode',
+    'fp_inst_off': 'fp_inst_off',
+    'fp_inst_seg': 'fp_inst_seg',
+    'fp_data_off': 'fp_data_off',
+    'fp_data_seg': 'fp_data_seg',
+    'mxcsr': 'mxcsr',
+    'mxcsr_mask': 'mxcsr_mask',
+    'signal': 'signal',
+    '_sigfields': 'sigfields',
+
+}
+
+PRPSINFO = {
+  'state': 'state', 
+  'sname': 'sname', 
+  'zomb': 'zomb', 
+  'nice': 'nice', 
+  'flag': 'flag', 
+  'uid': 'uid', 
+  'gid': 'gid', 
+  'pid': 'pid', 
+  'ppid': 'ppid', 
+  'pgrp': 'pgrp', 
+  'sid': 'sid', 
+  'fname': 'fname', 
+  'psargs': 'psargs', 
+}
+
+
+FP_REGS = {
+    'st0': 'st0',
+    'st1': 'st1',
+    'st2': 'st2',
+    'st3': 'st3',
+    'st4': 'st4',
+    'st5': 'st5',
+    'st6': 'st6',
+    'st7': 'st7',
+    'xmm0': 'xmm0',
+    'xmm1': 'xmm1',
+    'xmm2': 'xmm2',
+    'xmm3': 'xmm3',
+    'xmm4': 'xmm4',
+    'xmm5': 'xmm5',
+    'xmm6': 'xmm6',
+    'xmm7': 'xmm7',
+    'xmm8': 'xmm8',
+    'xmm9': 'xmm9',
+    'xmm10': 'xmm10',
+    'xmm11': 'xmm11',
+    'xmm12': 'xmm12',
+    'xmm13': 'xmm13',
+    'xmm14': 'xmm14',
+    'xmm15': 'xmm15',
+    'st0_raw': 'st0_raw',
+    'st1_raw': 'st1_raw',
+    'st2_raw': 'st2_raw',
+    'st3_raw': 'st3_raw',
+    'st4_raw': 'st4_raw',
+    'st5_raw': 'st5_raw',
+    'st6_raw': 'st6_raw',
+    'st7_raw': 'st7_raw',
 }

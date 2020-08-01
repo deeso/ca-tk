@@ -11,7 +11,7 @@ class Elf(object):
             return None
 
         try:
-            zipfile.ZipFile(zipname).namelist()
+            zipfile.ZipFile(filename).namelist()
             return True
         except:
             return False
@@ -32,7 +32,7 @@ class Elf(object):
             return None, None
         fd = zf.open(filename)
         if inmemory:
-            result = cls.from_bytes(fd.read())
+            result = cls.from_bytes(fd.read(), filename=filename)
             fd.close()
             zf.close()
             return result
@@ -44,16 +44,19 @@ class Elf(object):
             return None, None
         fd = open(filename, 'rb')
         if inmemory:
-            result = cls.from_bytes(fd.read())
+            result = cls.from_bytes(fd.read(), filename=filename)
             fd.close()
             return result
         return fd, ELFFile(fd)
 
     @classmethod
-    def from_bytes(cls, data):
+    def from_bytes(cls, data, filename=None):
+        filename = 'data' if filename is None else filename
         if not isinstance(data, bytes):
             return None, None
         fd = io.BytesIO(data)
+        if fd is not None:
+            setattr(fd, 'name', filename)
         return fd, ELFFile(fd)
 
 

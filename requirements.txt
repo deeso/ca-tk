@@ -1,3 +1,4 @@
 ipython
 wheel
 git+https://github.com/deeso/ma-tk@master#egg=ma-tk
+git+https://github.com/deeso/st-log@master#egg=st-log

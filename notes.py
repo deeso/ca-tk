@@ -34,7 +34,7 @@ pt_notes = [i for i in segments if i.header.p_type == 'PT_NOTE']
 pt_note = pt_notes[0]
 notes = [n for n in pt_note.iter_notes()]
 
-aux_notes = [n for n in pt_note.iter_notes() if i['n_desc'] == 'NT_AUXV']
+aux_notes = [n for n in pt_note.iter_notes() if n['n_desc'] == 'NT_AUXV']
 # NT_PRPSINFO 
 #notes[0].keys() => dict_keys(['n_namesz', 'n_descsz', 'n_type', 'n_offset', 'n_name', 'n_desc', 'n_size'])
 #notes[0]['n_desc'].keys() => dict_keys(['pr_state', 'pr_sname', 'pr_zomb', 'pr_nice', 'pr_flag', 'pr_uid', 'pr_gid', 'pr_pid', 'pr_ppid', 'pr_pgrp', 'pr_sid', 'pr_fname', 'pr_psargs'])  
@@ -69,4 +69,31 @@ for fname, _info in zip(notes[-1]['n_desc']['filename'], notes[-1]['n_desc']['El
 # 3. Provide basic seek, read, and emulation capabilities?
 
 
+
+Unit tests: python -m unittest discover -s testing/ -p '*_test.py'
+
+from ca_tk.load import Elf
+filename = 'sample/ipython-core-all.31971.zip'
+fd, ef = Elf.from_zip(self.ZIP_SAMPLE, inmemory=True)
+fd, ef = Elf.from_zip(filename, inmemory=True)
+
+sections = [i for i in ef.iter_sections()]                             
+segments = [i for i in ef.iter_segments()]
+
+pt_loads = [i for i in segments if i.header.p_type == 'PT_LOAD']
+pt_notes = [i for i in segments if i.header.p_type == 'PT_NOTE']
+pt_note = pt_notes[0]
+notes = [n for n in pt_note.iter_notes()]
+
+aux_notes = [n for n in pt_note.iter_notes() if n['n_type'] == 'NT_AUXV']
+
+import logging
+from ca_tk.linux.core import ElfCore, Thread
+from ca_tk.linux.util import NTDescToJson
+ZIPFILE_NAME = '/home/adpridge/research/core-dump-parser/sample/ipython-core-all.31971.zip'
+FILENAME = 'ipython-core-all.31971'
+ec = ElfCore(core_zip_filename=ZIPFILE_NAME, core_filename=FILENAME, 
+             inmemory=True,loglevel=logging.DEBUG)
+tm = ec.threads_metas[0]
+t  = Thread(*tm)
 

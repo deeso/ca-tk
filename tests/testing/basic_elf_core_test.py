@@ -11,6 +11,7 @@ class TestManager(unittest.TestCase):
     THIS_DIR = os.path.split(THIS_MODULE)[0]
     SAMPLE_DIR = THIS_DIR + '/../../sample/'
     ZIP_SAMPLE = SAMPLE_DIR + 'ipython-core-all.31971.zip'
+    FILENAME = 'ipython-core-all.31971'
     TMP_FILE = None
     TMP_NAME = None
     DATA = None
@@ -52,6 +53,9 @@ class TestManager(unittest.TestCase):
 
     def test_core_load(self):
         assertTrue = self.assertTrue
-        fd, ef = Elf.from_zip(self.ZIP_SAMPLE, inmemory=True)
+        print('\n\n\n')
+        print(self.ZIP_SAMPLE)
+        print(self.FILENAME)
+        ec = ElfCore(core_zip_filename=self.ZIP_SAMPLE, core_filename=self.FILENAME, inmemory=True)
 
    
