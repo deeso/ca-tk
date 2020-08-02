@@ -4,9 +4,11 @@ from ma_tk.manager import Manager
 from st_log.st_log import Logger
 from .. load import Elf
 from .core_structures_x86 import *
-from .util import NTDescToJson
+from .notes import NTDescToJson
 from .thread import Thread
 
+from .consts import *
+from .memory import *
 # Steps to mapping in files
 # 1. Parse the core format
 # 2. Extract relevant data points
@@ -70,7 +72,7 @@ class ElfCore(object):
         self.mgr = Manager()
         # TODO FIXME set the page_mask correctly through parameterization
         self.page_size = 4096
-        self.page_mask = ec.mgr.page_mask
+        self.page_mask = self.mgr.page_mask
 
         self.core_io = None
         self.elf = None
@@ -80,7 +82,8 @@ class ElfCore(object):
                       core_zip_filename=core_zip_filename)
         self.get_meta()
         
-
+    def build_memory_backed(self, pt_note):
+        filename = pt_note.get
 
     def get_meta(self):
         self.get_segments()
@@ -88,39 +91,49 @@ class ElfCore(object):
         self.get_pt_notes()
         self.get_pt_loads()
         self.get_notes()
-        self.get_prstatus_notes()
-        self.get_fpregset_notes()
-        self.get_prpsinfo_notes()
-        self.get_taskstruct_notes()
-        self.get_siginfo_notes()
-        self.get_auxv_notes()
-        self.get_xstate_notes()
-        self.get_file_notes()
+        thread_regs = self.get_prstatus_notes()
+        thread_fpregs = self.get_fpregset_notes()
+        thread_siginfos = self.get_siginfo_notes()
+        thread_xstates = self.get_xstate_notes()
+        
+        _ = self.get_taskstruct_notes()
+        auxv = self.get_auxv_notes()
+        ps_props = self.get_prpsinfo_notes()
+        files = self.get_file_notes()
+        ps_json = NTDescToJson.nt_prpsinfo(ps_props)
+        self.proc_properties = {PRPSINFO[k]: v for k, v in ps_json.items() if k in PRPSINFO}
+        threads_meta = zip(thread_regs, 
+                           thread_fpregs,
+                           thread_siginfos,
+                           thread_xstates)
 
-        self.proc_properties = {PRPSINFO[k]: v for k, v in NTDescToJson.nt_prpsinfo(self.notes[0])}
+        self.threads_metas = {c: tm  for c, tm  in enumerate(threads_meta)}
+        self.threads = {c: Thread(*tm) for c, tm in self.threads_metas.items()}
 
-        threads_meta = zip(self.get_prstatus_notes(), 
-                           self.get_fpregset_notes(),
-                           self.get_siginfo_notes(),
-                           self.get_xstate_notes())
-
-        self.threads_metas = {c: Thread(tm)  for c, tm  in enumerate(threads_meta)}
-        self.threads = {c: Thread(tm) for c, tm in enumerate(self.threads_metas)}
-
-        self.auxv = NTDescToJson.nt_auxv(self.nt_auxv[0])
+        self.auxv = NTDescToJson.nt_auxv(auxv)
+        self.stitch_files()
 
     def stitch_files(self):
-        self.files = NTDescToJson.nt_file(self.nt_file[0])
-        map_meta = {p.header.p_vaddr: p for p in self.pt_notes }
-        map_files = {f['vm_start'],f for f in self.files }
-        map_files_pc = {f['vm_start']:set()}
-        ec = self
-        info = [i for i in self.files['memory_map']]
-        map_files_pc = {f['vm_start']: 
-                                      set([i&self.page_mask 
-                                           for i in range(f['vm_start'], 
-                                                           f['vm_end'], 
-                                                           self.page_size)]) for f in info}
+        
+        file_info = self.get_files_info()
+        file_addrs = file_info.get('memory_map', [])
+        all_vaddrs = [p.header.p_vaddr for p in self.get_pt_notes()] + \
+                     [f['vm_start'] for f in file_addrs]
+        
+        self.stitching = {vaddr: DEFAULT_MEMORY_META.copy() for vaddr in all_vaddrs}
+        for p in self.get_pt_notes():
+            hdr = p.header
+            vaddr = hdr['p_vaddr']
+            self.stitching[vaddr].update(hdr)
+
+        for info in file_addrs:
+            vaddr = info['vm_start']
+            filename = info['filename']
+            self.stitching[vaddr].update(info)
+            self.stitching['loaded'] = False
+            self.stitching['requires_file'] = info['page_offset'] == 0
+            if info['page_offset'] == 0:
+                self.stitching['loadable'] = filename.find(b'(deleted)') > -1
 
 
     def read_mapping(self):
@@ -133,7 +146,6 @@ class ElfCore(object):
             file_name = f_info['filename']
             size = va_end - va_start
             self.add_mapping(va_start, va_end, page_offset, )
-
 
     def get_thread_meta(self, idx):
         return self.threads_metas[idx] if idx in self.threads_metas else None
@@ -160,62 +172,70 @@ class ElfCore(object):
             self.notes = [n for n in pt_note.iter_notes()]
         return self.notes
 
-    def get_pt_loads(self):
-        if not hasattr(self, 'pt_loads'):
-            self.pt_loads = [i for i in self.segments if i.header.p_type == 'PT_LOAD']
-        return self.pt_loads
-
     def get_pt_notes(self):
         if not hasattr(self, 'pt_notes'):
             self.pt_notes = [i for i in self.segments if i.header.p_type == 'PT_NOTE']
         return self.pt_notes
 
     def get_prstatus_notes(self):
-        notes = self.notes
+        notes = self.get_notes()
         if not hasattr(self, 'nt_prstatus'):
             self.nt_prstatus = [i for i in notes if i['n_type'] == 'NT_PRSTATUS' or i['n_type'] == 1]
         return self.nt_prstatus
 
     def get_fpregset_notes(self):
-        notes = self.notes
+        notes = self.get_notes()
         if not hasattr(self, 'nt_fpregset'):
             self.nt_fpregset = [i for i in notes if i['n_type'] == 'NT_FPREGSET' or i['n_type'] == 2]
         return self.nt_fpregset
 
     def get_prpsinfo_notes(self):
-        notes = self.notes
+        notes = self.get_notes()
+        # Note the pyelf tools a good enough job pulling out the relevant details
         if not hasattr(self, 'nt_prpsinfo'):
-            self.nt_prpsinfo = [i for i in notes if i['n_type'] == 'NT_PRPSINFO' or i['n_type'] == 3]
+            x = [i for i in notes if i['n_type'] == 'NT_PRPSINFO' or i['n_type'] == 3]
+            self.nt_prpsinfo = x[0]
         return self.nt_prpsinfo
 
     def get_taskstruct_notes(self):
-        notes = self.notes
+        notes = self.get_notes()
         if not hasattr(self, 'nt_taskstruct'):
             self.nt_taskstruct = [i for i in notes if i['n_type'] == 'NT_TASKSTRUCT' or i['n_type'] == 4]
         return self.nt_taskstruct
 
     def get_auxv_notes(self):
-        notes = self.notes
+        notes = self.get_notes()
         if not hasattr(self, 'nt_auxv'):
-            self.nt_auxv = [i for i in notes if i['n_type'] == 'NT_AUXV' or i['n_type'] == 4]
+            x = [i for i in notes if i['n_type'] == 'NT_AUXV' or i['n_type'] == 4]
+            self.nt_auxv = x[0]
         return self.nt_auxv
 
     def get_siginfo_notes(self):
-        notes = self.notes
+        notes = self.get_notes()
         if not hasattr(self, 'nt_siginfo'):
             self.nt_siginfo = [i for i in notes if i['n_type'] == 'NT_SIGINFO' or i['n_type'] == 0x53494749]
         return self.nt_siginfo
 
     def get_file_notes(self):
-        notes = self.notes
+        notes = self.get_notes()
         if not hasattr(self, 'nt_file'):
-            self.nt_file = [i for i in notes if i['n_type'] == 'NT_FILE' or i['n_type'] == 0x46494c45]
+            x = [i for i in notes if i['n_type'] == 'NT_FILE' or i['n_type'] == 0x46494c45]
+            self.nt_file = x
         return self.nt_file
 
     def get_xstate_notes(self):
-        notes = self.notes
+        notes = self.get_notes()
         return [i for i in notes if i['n_type'] == 'NT_X86_XSTATE' or i['n_type'] == 0x202]        
 
+    def get_files_info(self):
+        if not hasattr(self, 'files_info'):
+            self.file_info = NTDescToJson.nt_file(self.get_file_notes()[0])
+        return self.file_info
+
+    def get_pt_loads(self):
+        if not hasattr(self, 'pt_loads'):
+            self.pt_loads = [i for i in self.segments if i.header.p_type == 'PT_LOAD']
+        return self.pt_loads
 
     def contains_physical(self, offset) -> bytes:
         for mr in self.physical_ranges:

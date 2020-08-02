@@ -463,19 +463,19 @@ THREAD_MAPPING = {
 }
 
 PRPSINFO = {
-  'state': 'state', 
-  'sname': 'sname', 
-  'zomb': 'zomb', 
-  'nice': 'nice', 
-  'flag': 'flag', 
-  'uid': 'uid', 
-  'gid': 'gid', 
-  'pid': 'pid', 
-  'ppid': 'ppid', 
-  'pgrp': 'pgrp', 
-  'sid': 'sid', 
-  'fname': 'fname', 
-  'psargs': 'psargs', 
+  'pr_state': 'state', 
+  'pr_sname': 'sname', 
+  'pr_zomb': 'zomb', 
+  'pr_nice': 'nice', 
+  'pr_flag': 'flag', 
+  'pr_uid': 'uid', 
+  'pr_gid': 'gid', 
+  'pr_pid': 'pid', 
+  'pr_ppid': 'ppid', 
+  'pr_pgrp': 'pgrp', 
+  'pr_sid': 'sid', 
+  'pr_fname': 'fname', 
+  'pr_psargs': 'psargs', 
 }
 
 
@@ -512,4 +512,21 @@ FP_REGS = {
     'st5_raw': 'st5_raw',
     'st6_raw': 'st6_raw',
     'st7_raw': 'st7_raw',
+}
+
+DEFAULT_MEMORY_META = {
+    'p_type': None, 
+    'p_flags': 0, 
+    'p_offset': -1, 
+    'p_vaddr': -1, 
+    'p_paddr': -1, 
+    'p_filesz': -1, 
+    'p_memsz': -1, 
+    'p_align': -1,
+    'vm_start': -1,
+    'vm_end': -1,
+    'filename': 'NOT_SET',
+    'loaded': False,
+    'loadable': False,
+    'requires_file': False,
 }

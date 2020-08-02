@@ -4,7 +4,7 @@ from ma_tk.manager import Manager
 from st_log.st_log import Logger
 from .. load import Elf
 from .core_structures_x86 import *
-from .util import NTDescToJson
+from .notes import NTDescToJson
 from .consts import THREAD_MAPPING, FP_REGS
 
 

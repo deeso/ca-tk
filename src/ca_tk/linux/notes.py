@@ -1,20 +1,20 @@
 import copy
 import ctypes
 
-from .core_structures_x86 import USER_REGSX32_STRUCT, USER_REGS32_STRUCT, 
-                                 ELF_PRSTATUS32X, ELF_PRSTATUS32X_WITH_UNUSED,
-                                 ELF_PRSTATUS32, ELF_PRSTATUS32_WITH_UNUSED,
-                                 AMD64_XSAVE, SIGINFO, siginfo_signal_info64, 
-                                 siginfo_signal_info, auxv_t, auxv_t_64,
-                                 I387_FXSAVE
+from .core_structures_x86 import USER_REGSX32_STRUCT, USER_REGS32_STRUCT, \
+                                 ELF_PRSTATUS32X, ELF_PRSTATUS32X_WITH_UNUSED, \
+                                 ELF_PRSTATUS32, ELF_PRSTATUS32_WITH_UNUSED, \
+                                 AMD64_XSAVE, SIGINFO, SIGINFO64, \
+                                 siginfo_signal_info64, siginfo_signal_info, \
+                                 auxv_t, auxv_t_64, I387_FXSAVE 
 
 from .consts import *
+from .util import bytes_to_struct, json_serialize_struct
 
-
-class ExtractNoteDesc(object):
+class NtDescToStruct(object):
 
     @classmethod
-    def extract_prstatus_info(cls, note):
+    def nt_prstatus(cls, note):
         struct_klass = ELF_PRSTATUS32X
         ssz = ctypes.sizeof(struct_klass)
         if note.get('n_type', '') == 'NT_PRSTATUS':
@@ -30,7 +30,7 @@ class ExtractNoteDesc(object):
         return None
 
     @classmethod
-    def extract_x86_state_info(cls, note, is_amd64=True):
+    def nt_x86_state(cls, note, is_amd64=True):
         #FIXME intentionally throw an error here, not sure we can handle i386 in the same way
         struct_klass = AMD64_XSAVE if is_amd64 else I387_FXSAVE
         ssz = ctypes.sizeof(struct_klass)
@@ -41,7 +41,7 @@ class ExtractNoteDesc(object):
         return None
 
     @classmethod
-    def extract_fpreg_state_info(cls, note, is_amd64=True):
+    def nt_fpregset(cls, note, is_amd64=True):
         #FIXME intentionally throw an error here, not sure we can handle i386 in the same way
         struct_klass = AMD64_XSAVE if is_amd64 else I387_FXSAVE
         ssz = ctypes.sizeof(struct_klass)
@@ -52,7 +52,7 @@ class ExtractNoteDesc(object):
         return None
 
     @classmethod
-    def extract_siginfo_info(cls, note, is_amd64=True):
+    def nt_siginfo(cls, note, is_amd64=True):
         struct_klass = SIGINFO if not is_amd64 else SIGINFO64
         ssz = ctypes.sizeof(struct_klass)
         if note.get('n_type', '') == 0x53494749 or note.get('n_type', '') == 'NT_SIGINFO' :
@@ -62,7 +62,7 @@ class ExtractNoteDesc(object):
         return None
 
     @classmethod
-    def extract_auxv_info(cls, note, is_amd64=True):
+    def nt_auxv(cls, note, is_amd64=True):
         auxv = []
         struct_klass = auxv_t if not is_amd64 else auxv_t_64
         if note.get('n_type', '') == 'NT_AUXV':
@@ -75,10 +75,10 @@ class ExtractNoteDesc(object):
         return auxv
 
 
-class SerializeNotes(object):
+class NTDescToJson(object):
     @classmethod
-    def serialize_fpregset_note(cls, note, idx=0):
-        s = ExtractNoteDesc.extract_fpreg_state_info(note)
+    def nt_fpregset(cls, note, idx=0):
+        s = NtDescToStruct.nt_fpregset(note)
         r = json_serialize_struct(s) if s is not None else {}
 
         # serialize st* and xmm*
@@ -112,8 +112,8 @@ class SerializeNotes(object):
         return r
 
     @classmethod
-    def serialize_x86_state_note(cls, note, idx=0):
-        s = ExtractNoteDesc.extract_x86_state_info(note)
+    def nt_x86_state(cls, note, idx=0):
+        s = NtDescToStruct.nt_x86_state(note)
         r = json_serialize_struct(s) if s is not None else {}
 
         # serialize st* and xmm*
@@ -147,18 +147,8 @@ class SerializeNotes(object):
         return r
 
     @classmethod
-    def serialize_prstatus_notes(cls, notes):
-        prstatusx_notes = []
-        idx = 0
-        for note in notes:
-            if note.get('n_type', '') == 'NT_PRSTATUS':
-                prstatusx_notes.append(cls.serialize_prstatus_note(note, idx))
-                idx += 1
-        return prstatusx_notes
-
-    @classmethod
-    def serialize_prstatus_note(cls, note, idx=0):
-        s = ExtractNoteDesc.extract_prstatus_info(note)
+    def nt_prstatus(cls, note, idx=0):
+        s = NtDescToStruct.nt_prstatus(note)
         r = json_serialize_struct(s) if s is not None else {}
         for k in note:
             if k == 'n_desc':
@@ -173,8 +163,8 @@ class SerializeNotes(object):
         return r
 
     @classmethod
-    def serialize_siginfo_note(cls, note, idx=0, is_amd64=True):
-        s = ExtractNoteDesc.extract_siginfo_info(note, is_amd64)
+    def nt_siginfo(cls, note, idx=0, is_amd64=True):
+        s = NtDescToStruct.nt_siginfo(note, is_amd64)
         r = json_serialize_struct(s) if s is not None else {}
         for k in note:
             if k == 'n_desc':
@@ -199,8 +189,8 @@ class SerializeNotes(object):
         return r
 
     @classmethod
-    def serialize_auxv_note(cls, note, is_amd64=True):
-        auxv = ExtractNoteDesc.extract_auxv_info(note, is_amd64)
+    def nt_auxv(cls, note, is_amd64=True):
+        auxv = NtDescToStruct.nt_auxv(note, is_amd64)
         s_auxv = []
         r = {}
         idx = 0
@@ -219,33 +209,33 @@ class SerializeNotes(object):
         r['size'] = note['n_size']
         return r
 
-    @classmethod
-    def serialize_siginfo_note(cls, note, idx=0, is_amd64=True):
-        s = ExtractNoteDesc.extract_siginfo_info(note, is_amd64)
-        r = json_serialize_struct(s) if s is not None else {}
-        for k in note:
-            if k == 'n_desc':
-                continue
-            r[k] = note[k]
-        snum = r['si_signo']
-        if snum in SIGNAL_LABELS:
-            r['signal'] = SIGNAL_LABELS[snum]
-            if snum in SIGNAL_ATTR:
-                attr = SIGNAL_ATTR[snum]
-                l = json_serialize_struct(getattr(s['_sigfields'], attr))
-                if l:
-                    r.update(l)
-            del r['_sigfields']['_pad']
-        r['idx'] = idx
-        r['type'] = note['n_type']
-        r['name'] = note['n_name']
-        r['offset'] = note['n_offset']
-        r['descsz'] = note['n_descsz']
-        r['size'] = note['n_size']
-        return r
+    # @classmethod
+    # def nt_siginfo(cls, note, idx=0, is_amd64=True):
+    #     s = NtDescToStruct.nt_siginfo(note, is_amd64)
+    #     r = json_serialize_struct(s) if s is not None else {}
+    #     for k in note:
+    #         if k == 'n_desc':
+    #             continue
+    #         r[k] = note[k]
+    #     snum = r['si_signo']
+    #     if snum in SIGNAL_LABELS:
+    #         r['signal'] = SIGNAL_LABELS[snum]
+    #         if snum in SIGNAL_ATTR:
+    #             attr = SIGNAL_ATTR[snum]
+    #             l = json_serialize_struct(getattr(s['_sigfields'], attr))
+    #             if l:
+    #                 r.update(l)
+    #         del r['_sigfields']['_pad']
+    #     r['idx'] = idx
+    #     r['type'] = note['n_type']
+    #     r['name'] = note['n_name']
+    #     r['offset'] = note['n_offset']
+    #     r['descsz'] = note['n_descsz']
+    #     r['size'] = note['n_size']
+    #     return r
 
     @classmethod
-    def serialize_file_note(cls, note, idx=0, is_amd64=True):
+    def nt_file(cls, note, idx=0, is_amd64=True):
         r = {}
         note_desc_data = note['n_desc'] 
         filenames = note_desc_data['filename']
@@ -266,4 +256,16 @@ class SerializeNotes(object):
             memory_map.append(info)
 
         r['memory_map'] = memory_map
+        return r
+
+    @classmethod
+    def nt_prpsinfo(cls, note, idx=0, is_amd64=True):
+        r = {}
+        note_desc_data = note['n_desc'] 
+        r = {k:v for k,v in note_desc_data.items()}
+        r['type'] = note['n_type']
+        r['name'] = note['n_name']
+        r['offset'] = note['n_offset']
+        r['descsz'] = note['n_descsz']
+        r['size'] = note['n_size']
         return r
