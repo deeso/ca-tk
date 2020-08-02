@@ -302,12 +302,15 @@ class ElfCore(object):
             data = self.read_data_elf_info(page_offset, elf_info, expected_size=data_size)
 
         if data is not None:
+            # map the memory object into the manager for accessiblity
+            # update the info indicated it was loaded
             self.debug("Creating a memory object for the buffer from: {}@{:08x} starting @{:016x}".format(filename, page_offset, vaddr))
             ibm = self.mgr.add_buffermap(data, va_start, vm_size, 0,
                                    page_size=4096, filename=filename, 
                                    flags=flags)
             setattr(ibm, 'elf_info', elf_info)
             setattr(ibm, 'info', info)
+            info['loaded'] = True
         return ibm
 
     def load_core_segment_file(self, stitched_info):
@@ -334,11 +337,14 @@ class ElfCore(object):
                 core_io = elf_info['fd']
 
         if core_io is not None:
+            # map the memory object into the manager for accessiblity
+            # update the info indicated it was loaded
             self.debug("Creating a memory object for the file memory object from: {}@{:08x} starting @{:016x}".format(filename, page_offset, vaddr))
             ibm = self.mgr.add_ioobj(core_io, va_start, size, phy_start=page_offset, 
                               flags=flags, filename=filename, page_size=4096)
             setattr(ibm, 'elf_info', elf_info)
             setattr(ibm, 'info', info)
+            info['loaded'] = True
         return ibm
 
     def load_core_segments(self):
@@ -353,8 +359,13 @@ class ElfCore(object):
         segment_in_core = lambda info: info.get('page_offset', 0) > 0
         segment_in_elf = lambda info: info.get('filename', 'a'*20) in rfiles         
         mem_list = []
+        # this will mutate the stitching information to indicate that the
+        # a segment was loaded
         for info in self.get_stitching():
             ibm = None
+            # cant load stitched information if the vaddr is badd.
+            if info['vm_start'] == -1:
+                continue
             if self.inmemory:
                 ibm = self.load_core_segment_inmemory(info)
             else:
@@ -367,7 +378,11 @@ class ElfCore(object):
         stitch together information from the NT_FILES and PT_LOAD segments
 
         this information is used to load the respective memory segments for
-        analysis 
+        analysis
+
+        #TODO clean up the data here, since the stitching will create
+        incorrect perspectives into the core file. this was a hack to
+        get around deeper understanding.
         '''
         self.logger.debug("Stitching together file information")
         file_info = self.get_files_info()
@@ -375,6 +390,10 @@ class ElfCore(object):
         all_vaddrs = [p.header.p_vaddr for p in self.get_pt_notes()] + \
                      [f['vm_start'] for f in file_addrs]
         
+        # add the progam header meta data into the vaddr entry
+        # the logic is that where the PT_LOAD and NT_FILE 
+        # segments align, we'll get a clear picture.  Not always happening
+
         self.stitching = {vaddr: DEFAULT_MEMORY_META.copy() for vaddr in all_vaddrs}
         for p in self.get_pt_notes():
             hdr = p.header
