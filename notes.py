@@ -89,11 +89,8 @@ aux_notes = [n for n in pt_note.iter_notes() if n['n_type'] == 'NT_AUXV']
 
 import logging
 from ca_tk.linux.core import ElfCore, Thread
-from ca_tk.linux.util import NTDescToJson
+from ca_tk.linux.notes import NTDescToJson
 ZIPFILE_NAME = '/home/adpridge/research/core-dump-parser/sample/ipython-core-all.31971.zip'
 FILENAME = 'ipython-core-all.31971'
 ec = ElfCore(core_zip_filename=ZIPFILE_NAME, core_filename=FILENAME, 
              inmemory=True,loglevel=logging.DEBUG)
-tm = ec.threads_metas[0]
-t  = Thread(*tm)
-

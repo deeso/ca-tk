@@ -16,6 +16,11 @@ class Elf(object):
         except:
             return False
 
+    @classmethod
+    def zip_names(cls, filename):
+        if is_zip(filename):
+            return zipfile.ZipFile(zipname).namelist()
+        return None
 
     @classmethod
     def from_zip(cls, zipname, filename=None, inmemory=False):
