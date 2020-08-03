@@ -94,3 +94,16 @@ ZIPFILE_NAME = '/home/adpridge/research/core-dump-parser/sample/ipython-core-all
 FILENAME = 'ipython-core-all.31971'
 ec = ElfCore(core_zip_filename=ZIPFILE_NAME, core_filename=FILENAME, 
              inmemory=True,loglevel=logging.DEBUG)
+
+import logging
+from ca_tk.linux.core import ELFCore
+from ca_tk.linux.thread import Thread
+from ca_tk.linux.notes import NTDescToJson
+ZIPFILE_NAME = '/home/adpridge/research/core-dump-parser/sample/ipython-core-all.31971.zip'
+FILENAME = 'ipython-core-all.31971'
+ec = ELFCore(core_zip_filename=ZIPFILE_NAME, core_filename=FILENAME, 
+             inmemory=True,loglevel=logging.DEBUG)
+
+required_files = ec.get_required_files_list()
+libz = required_files[-1]
+segments = [i for i in ec.get_stitching().values() if i.filename.find(libz) > -1]

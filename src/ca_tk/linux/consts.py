@@ -526,7 +526,7 @@ DEFAULT_MEMORY_META = {
     'vm_start': -1,
     'vm_end': -1,
     'vm_size': -1,
-    'filename': 'NOT_SET',
+    'filename': b'NOT_SET',
     'loaded': False,
     'loadable': False,
     'requires_file': False,

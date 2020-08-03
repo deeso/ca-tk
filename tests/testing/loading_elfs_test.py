@@ -3,8 +3,7 @@ import tempfile
 import io
 import os
 import unittest
-from ca_tk.load import Elf
-
+from ma_tk.load.elf import OpenELF
 
 
 BUFFER_VA = 0x14000
@@ -37,7 +36,9 @@ class TestManager(unittest.TestCase):
         # read sample
         # write to a temporary location
         # load the file using the filename
-        fd, ef = Elf.from_file(self.TMP_NAME)
+        file_info = OpenELF.from_file(self.TMP_NAME)
+        self.assertTrue(file_info is not None)
+        fd = file_info.get_fd()
         self.assertTrue(fd is not None)
         fd.seek(0)
         x = fd.read(8)
@@ -45,7 +46,10 @@ class TestManager(unittest.TestCase):
 
     def test_load_elf_zip(self):
         # try to load the sampe zip
-        fd, ef = Elf.from_zip(self.ZIP_SAMPLE)
+        file_info = OpenELF.from_zip(self.ZIP_SAMPLE)
+        self.assertTrue(file_info is not None)
+        fd = file_info.get_fd()
+
         self.assertTrue(fd is not None)
         fd.seek(0)
         x = fd.read(8)
@@ -53,7 +57,10 @@ class TestManager(unittest.TestCase):
 
     def test_load_elf_zip_inmemory(self):
         # try to load the sampe zip
-        fd, ef = Elf.from_zip(self.ZIP_SAMPLE, inmemory=True)
+        file_info = OpenELF.from_zip(self.ZIP_SAMPLE, inmemory=True)
+        self.assertTrue(file_info is not None)
+        fd = file_info.get_fd()
+
         self.assertTrue(fd is not None)
         self.assertTrue(isinstance(fd, io.BytesIO))
         fd.seek(0)
@@ -62,7 +69,10 @@ class TestManager(unittest.TestCase):
 
     def test_load_elf_file_inmemory(self):
         # try to load the sampe zip
-        fd, ef = Elf.from_file(self.TMP_NAME, inmemory=True)
+        file_info = OpenELF.from_file(self.TMP_NAME, inmemory=True)
+        self.assertTrue(file_info is not None)
+        fd = file_info.get_fd()
+
         self.assertTrue(fd is not None)
         self.assertTrue(isinstance(fd, io.BytesIO))
         fd.seek(0)
@@ -71,7 +81,10 @@ class TestManager(unittest.TestCase):
 
     def test_load_elf_bytes(self):
         # try to load the sampe zip
-        fd, ef = Elf.from_bytes(self.DATA)
+        file_info = OpenELF.from_bytes(self.DATA)
+        self.assertTrue(file_info is not None)
+        fd = file_info.get_fd()
+
         self.assertTrue(fd is not None)
         fd.seek(0)
         x = fd.read(8)
@@ -81,7 +94,10 @@ class TestManager(unittest.TestCase):
         # from file is really slow, analysis needs to be
         # in memory, or prepare to sit for a lot longer
         assertTrue = self.assertTrue
-        fd, ef = Elf.from_zip(self.ZIP_SAMPLE, inmemory=True)
+        file_info = OpenELF.from_zip(self.ZIP_SAMPLE, inmemory=True)
+        self.assertTrue(file_info is not None)
+        fd = file_info.get_fd()
+        ef = file_info.get_file_interpreter()
 
         sections = [i for i in ef.iter_sections()]
         assertTrue(len(sections) == 132)

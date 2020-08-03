@@ -1,15 +1,18 @@
+import uuid
 import os
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import NoteSection
-from ma_tk.manager import Manager
 from st_log.st_log import Logger
-from .. load import Elf
 from .core_structures_x86 import *
 from .notes import NTDescToJson
 from .thread import Thread
-
 from .consts import *
 from .memory import *
+
+from ma_tk.manager import Manager
+from ma_tk.load.elf import OpenELF, ElfFileLoader
+from ma_tk.load.file import FileLoader
+
 # Steps to mapping in files
 # 1. Parse the core format
 # 2. Extract relevant data points
@@ -20,9 +23,22 @@ from .memory import *
 import logging
 import logging.handlers
 
+class StitchObject(object):
+    def __init__(self):
+        for k, v in DEFAULT_MEMORY_META.items():
+            setattr(self, k, v)
 
+    def get_filename(self):
+        getattr(self, 'filename', None)
 
-class ElfCore(object):
+    def update(self, info_dict: dict):
+        for k, v in info_dict.items():
+            setattr(self, k, v)
+
+    def set_loaded(self, loaded=True):
+        setattr(self, 'loaded', loaded)
+
+class ELFCore(object):
 
     def __init__(self, core_filename: str=None, 
                        core_data: bytes=None,
@@ -34,39 +50,35 @@ class ElfCore(object):
                        inmemory=False,
                        core_zip_filename: str=None,
                        load_external_files=True,
-                       loglevel=logging.INFO):
+                       loglevel=logging.INFO,
+                       namespace='ca_tk',
+                       other_namespaces=None,
+                       auto_load_files=False):
         
-        self.logger = Logger("ElfCore", level=loglevel)
+        self.logger = Logger("OpenELFCore", level=loglevel)
         self.physical_ranges = []
         self.virtual_ranges = []
         self.load_external_files = load_external_files
         self.inmemory = inmemory
-        self.required_files_to_elf = {}
-        self.required_files_to_location = {}
+        self.namespace = namespace
+        self.other_namespaces = [] if other_namespaces is None else other_namespaces
+        self.auto_load_files = False
 
-        # cheap shot here.
-        self.rfiles_location = {} if required_files_location is None \
-                                  else required_files_location.copy()
+        self.file_loader = FileLoader.create_fileloader( namespace=namespace,
+            required_files_location_list=required_files_location_list,
+            required_files_location=required_files_location,
+            required_files_bytes=required_files_bytes,
+            required_files_dir=required_files_dir,
+            required_files_zip=required_files_zip)
 
-        if required_files_location_list is not None:
-            for f in required_files_location_list:
-                if f not in self.rfiles_location:
-                    self.rfiles_location[f] = f
+        self.elf_loader = ElfFileLoader.create_fileloader( namespace=namespace+'_elf',
+            required_files_location_list=required_files_location_list,
+            required_files_location=required_files_location,
+            required_files_bytes=required_files_bytes,
+            required_files_dir=required_files_dir,
+            required_files_zip=required_files_zip)
+        self.elf_loader.set_file_opener(OpenELF)
 
-        self.rfiles_bytes = {} if required_files_bytes is None \
-                               else required_files_bytes
-        # tell the memory loader that we have the file
-        # but its already in memory
-        self.rfiles_location.update({k: None for k in self.rfiles_bytes})
-        self.rfiles_zip = None
-        if required_files_zip is not None and Elf.is_zip(required_files_zip):
-            self.rfiles_zip = required_files_zip
-            self.rfiles_zip_names = Elf.zip_names()
-
-        if required_files_dir is not None:
-            # FIXME non-path recursion here :(
-            files = [os.path.join(required_files_dir, i) for i in os.listdir('.')]
-            self.rfiles_location.update({k:k for k in files})
         # parse out each relevant program hdr and segment
 
         # map pages to a specific range
@@ -76,20 +88,18 @@ class ElfCore(object):
         self.page_size = 4096
         self.page_mask = self.mgr.page_mask
 
-        self.core_io = None
+        self.core_file_obj = None
         self.elf = None
-        self.source = None
-        self.load_elf(core_filename=core_filename, 
+        self.source = "Failed"
+        self.load_core_elf(core_filename=core_filename, 
                       core_data=core_data, inmemory=self.inmemory, 
                       core_zip_filename=core_zip_filename)
         self.core_data = core_data
         self.core_filename = core_filename
         self.core_zip_filename = core_zip_filename
+        self.clone_interps = False
         self.init_meta()
         
-    def build_memory_backed(self, pt_note):
-        filename = pt_note.get
-
     def init_meta(self):
         self.logger.debug("Extracting the sections, notes, and segments")
         self.get_segments()
@@ -122,14 +132,16 @@ class ElfCore(object):
         self.auxv = NTDescToJson.nt_auxv(auxv)
         
         self.stitch_files()
-        self.load_memory()
+        if self.auto_load_files:
+            self.load_core_segments()
 
     def get_required_files_list(self):
         if not hasattr(self, 'required_files'):
             required_files = set()
-            for info in self.get_stitching():
-                if info.get('requires_file', False):
-                    required_files.add(info['filename'])
+            stitching = self.get_stitching()
+            for info in stitching.values():
+                if info.requires_file:
+                    required_files.add(info.filename)
             self.required_files = sorted(required_files)
         return self.required_files
 
@@ -137,104 +149,6 @@ class ElfCore(object):
         if not hasattr(self, 'stitching'):
             self.stitching = self.stitch_files()
         return self.stitching
-
-    def init_required_file(self, filename):
-        '''
-        1) resolve the required file,
-        2) load the file if found,
-        3) map the sections by p_offset from the segment header
-        None if any of this stuff fails.
-        '''
-        location = self.where_is_required_file(filename)
-        if location is None:
-            return None
-        fd, ef = self.load_elf_location(location)
-        if ef is None:
-            self.required_files_to_elf[filename] = None
-            return None
-
-        if ef is not None:
-            x = {i.header.p_offset: i for i in ef.iter_segments()}
-            segments_by_offset = x
-
-        return {
-            'filename': filename
-            'elf':ef,
-            'fd': fd,
-            'location': location,
-            'segments_by_offset': segments_by_offset}
-
-    def get_required_file(self, filename):
-        '''
-        list of required files by the core file,
-        based on the NT_FILES note
-        '''
-        if filename in self.required_files_to_elf:
-            return self.required_files_to_elf[filename]
-        result = self.init_required_file(filename)
-        self.required_files_to_elf[filename] = result
-        return self.required_files_to_elf[filename]
-
-    def load_elf_location(self, location):
-        '''
-        load the file using the Elf loader class
-        returns an IO file descriptor and pyelf file
-        '''
-        fd = None
-        ef = None
-        if location == b'bytes::':
-            data = self.rfiles_bytes[location]
-            fd, ef = Elf.from_bytes(data, fname)
-            fd.name = fname
-        elif location == b'zip::':
-            name = location.strip('zip::')
-            fd, ef = Elf.from_zip(self.rfiles_zip, name, inmemory)
-            fd.name = fname
-        elif location is not None:
-            fd, ef = Elf.from_file(self.rfiles_zip, location, inmemory)
-            fd.name = fname
-        return fd, ef
-
-    def where_is_required_file(self, filename):
-        '''
-        The ELF file we want to load can be in several places:
-            1a) provided directory (a directory)
-            1b) list of files passed in during initialization
-            2) in memory as a byte array ('bytes::')
-            3) in a zip file ('zip::')
-            4) on the local system
-
-            at initialization, this dictionary maps known
-            elfs for resolution in all cases except local system
-        '''
-        location = None
-        if filename in self.required_files_to_location:
-            return self.required_files_to_location[filename]
-
-        # tell where the file is.
-        # checks in memory bytes, mapping of filename to a location.
-        if filename in self.rfiles_location:
-            location = self.rfiles_location.get(filename)
-            location = b'bytes::' if location is None else location
-
-        # try just the filename if its in a path
-        if location is None and os.path.split(filename) > 0:
-            just_fn = os.path.split(filename)
-            location = self.where_is_required_file(filename)
-
-        # check the zip names list
-        if location is None and self.rfiles_zip_names is not None:
-            for n in self.rfiles_zip_names:
-                if n.find(filename) > -1:
-                    location = b'zip::' + n
-                    break
-
-        # check local file system
-        if location is None:
-            if os.path.exists(filename):
-                location = filename
-        self.required_files_to_location[filename] = location
-        return location
 
     def read_data_elf_info(self, page_offset, elf_info, expected_size=None):
         '''
@@ -245,26 +159,19 @@ class ElfCore(object):
 
         Also of note, we read only the the file segments size, and then
         pad that data to the expected virtual address size.
-
-        elf_info contains:
-        {
-            'filename': filename
-            'elf':ef,
-            'fd': fd,
-            'location': location,
-            'segments_by_offset': segments_by_offset
-        }
+        see ma_tk.load.file.FileLoader for info
+        
 
         '''
-        fd = elf_info.get('fd', None)
-        filename = elf_info['filename']
-        segment = elf_info.get('segments_by_offset', {}).get(page_offset, None)
+        fd = elf_info.get_fd()
+        filename = elf_info.get_filename()
+        segment = elf_info.get_attr('segments_by_offset', {}).get(page_offset, None)
 
         if segment is None:
             self.info("Unable to retrieve Segment @ {:016x} for {}".format(page_offset, filename))
             return None
 
-        ef = elf_info.get('elf', None)
+        # ef = elf_info.get_file_interpreter()
         if fd is None:
             self.info("Invalid file descriptor for {}".format(filename))
             return None
@@ -287,15 +194,24 @@ class ElfCore(object):
         information gathered during the stitching process
         '''
         ibm = None
-        info = stitched_info
-        filename = info.get('filename', None)
-        elf_info = self.get_required_file()
-        page_offset = info['page_offset']
-        data_size = info['vm_size']
-        va_start = info['vm_start']
-        flags = info['p_flags']
+        filename = stitched_info.filename
+        elf_info = None
+        # FIXME need a better way of handling the file loading (e.g. data, exe disguised as not ELFs)        # assuming this is an elf, means if its not we will fail anyway later
+        # assuming this is an elf, means if its not we will fail anyway later
+        try:    
+            elf_info = self.elf_loader.load_file(filename, namespace=self.namespace, namespaces=self.other_namespaces)
+        except:
+            elf_info = self.file_loader.load_file(filename, namespace=self.namespace, namespaces=self.other_namespaces)
+
+        page_offset = stitched_info.page_offset
+        data_size = stitched_info.vm_size
+        va_start = stitched_info.vm_start
+        flags = stitched_info.p_flags
         data = None
-        if segment_in_core(info):
+
+        segment_in_core = lambda info: info.page_offset > 0
+        segment_in_elf = lambda info: info.filename in rfiles
+        if segment_in_core(stitched_info):
             core_io.seek(page_offset, os.SEEK_SET)
             data = core_io.read(data_size)
         elif elf_info is not None:
@@ -319,22 +235,30 @@ class ElfCore(object):
         information gathered during the stitching process
         '''
         ibm = None
-        info = stitched_info
-        filename = info.get('filename', None)
-        elf_info = self.get_required_file()
-        page_offset = info['page_offset']
-        data_size = info['vm_size']
-        va_start = info['vm_start']
-        flags = info['p_flags']
+        filename = stitched_info.filename
+        # FIXME need a better way of handling the file loading (e.g. data, exe disguised as not ELFs)
+        # assuming this is an elf, means if its not we will fail anyway later
+        elf_info = None
+        try:    
+            elf_info = self.elf_loader.load_file(filename, namespace=self.namespace, namespaces=self.other_namespaces)
+        except:
+            elf_info = self.file_loader.load_file(filename, namespace=self.namespace, namespaces=self.other_namespaces)
+        page_offset = stitched_info.page_offset
+        data_size = stitched_info.vm_size
+        va_start = stitched_info.vm_start
+        flags = stitched_info.p_flags
         core_io = None
-        if segment_in_core(info):
+
+        segment_in_core = lambda info: info.page_offset > 0
+        segment_in_elf = lambda info: info.filename in rfiles
+        if segment_in_core(stitched_info):
             core_io = self.clone_core_io()
             core_io.seek(page_offset, os.SEEK_SET)
 
         else:
-            elf_info = self.init_required_file(filename)
-            if elf_info is not None and elf_info.get('fd', None) is not None:
-                core_io = elf_info['fd']
+            elf_info = self.file_loader.load_file(filename, namespace=self.namespace, namespaces=self.other_namespaces)
+            if elf_info is not None and elf_info.get_fd() is not None:
+                core_io = elf_info.clone(create_new_file_interp=self.clone_interps)
 
         if core_io is not None:
             # map the memory object into the manager for accessiblity
@@ -347,6 +271,19 @@ class ElfCore(object):
             info['loaded'] = True
         return ibm
 
+    def load_core_segment(self, stitched_info):
+        info = self.get_stitching()[0]
+        ibm = None
+        if info.vm_start == -1:
+            pass
+        elif self.inmemory:
+            ibm = self.load_core_segment_inmemory(stitched_info)
+        else:
+            ibm = self.load_core_segment_file(stitched_info)
+        if ibm is not None:
+            mem_list.append(ibm)
+        return ibm
+
     def load_core_segments(self):
         '''
         load up segments from the core file or from other files, depending if
@@ -354,23 +291,14 @@ class ElfCore(object):
         python IO (much slower)
         '''
         inmemory = self.inmemory
-        rfiles = self.get_required_files_list()
-
-        segment_in_core = lambda info: info.get('page_offset', 0) > 0
-        segment_in_elf = lambda info: info.get('filename', 'a'*20) in rfiles         
+        
         mem_list = []
         # this will mutate the stitching information to indicate that the
         # a segment was loaded
         for info in self.get_stitching():
             ibm = None
             # cant load stitched information if the vaddr is badd.
-            if info['vm_start'] == -1:
-                continue
-            if self.inmemory:
-                ibm = self.load_core_segment_inmemory(info)
-            else:
-                ibm = self.load_core_segment_file(info)
-            mem_list.append(ibm)
+            self.load_core_segment(info)
         return mem_list        
         
     def stitch_files(self):
@@ -394,7 +322,7 @@ class ElfCore(object):
         # the logic is that where the PT_LOAD and NT_FILE 
         # segments align, we'll get a clear picture.  Not always happening
 
-        self.stitching = {vaddr: DEFAULT_MEMORY_META.copy() for vaddr in all_vaddrs}
+        self.stitching = {vaddr: StitchObject() for vaddr in all_vaddrs}
         for p in self.get_pt_notes():
             hdr = p.header
             vaddr = hdr['p_vaddr']
@@ -405,15 +333,14 @@ class ElfCore(object):
             vm_size = info['vm_end'] - info['vm_start']
             filename = info['filename']
             self.stitching[vaddr].update(info)
-            self.stitching[vaddr]['vm_size'] = vm_size
-            self.stitching[vaddr]['loaded'] = False
-            self.stitching[vaddr]['requires_file'] = info['page_offset'] == 0
+            self.stitching[vaddr].vm_size = vm_size
+            self.stitching[vaddr].loaded = False
+            self.stitching[vaddr].requires_file = info['page_offset'] == 0
             if info['page_offset'] == 0:
-                self.stitching[vaddr]['loadable'] = filename.find(b'(deleted)') > -1
+                self.stitching[vaddr].loadable = filename.find(b'(deleted)') > -1
         return self.stitching
 
     def read_mapping(self):
-
         mappings = {}
         for f_info in self.files:
             va_start = f_info['vm_start']
@@ -571,46 +498,79 @@ class ElfCore(object):
         # 1) return threads/processes
         pass
 
+    def load_elf_zip(self, zip_filename, filename=None, inmemory=True):
+        return self.elf_loader.load_file_from_zip(zip_filename, filename, inmemory=inmemory)
 
-    def load_elf(self, core_filename: str=None, 
+
+    def load_elf_bytes(self, data, filename=None, update_bytes=True):
+        if data is not None and filename is None:
+            filename = str(uuid.uuid4())
+
+        # FIXME
+        if data is not None and\
+           filename in self.elf_loader.required_files_bytes and not update_bytes:
+           # TODO there may be a case where multiple byte blogs or what ever get 
+           # set in known byte arrays KB e.g. elf_loader.required_files_bytes
+           # what do we do when this happens?
+           # right now, we ignore it and use the data already there
+           self.logger.critical("There might be a data collision for {}".format(filename))
+        elif data is not None and\
+           filename in self.elf_loader.required_files_bytes and update_bytes:
+           # TODO there may be a case where multiple byte blogs or what ever get 
+           # set in known byte arrays KB e.g. elf_loader.required_files_bytes
+           # what do we do when this happens?
+           # right now, we ignore it and use the data already there
+           self.logger.critical("There might be a data collision for {}".format(filename))
+           self.elf_loader.required_files_bytes[filename] = data
+        elif data is not None:
+           self.elf_loader.required_files_bytes[filename] = data
+
+        return self.elf_loader.load_file(data, self.namespace, 
+                                         namespaces=self.other_namespaces)
+
+
+    def load_elf(self, filename: str=None, 
+                       data: bytes=None,
+                       inmemory=False,
+                       zip_filename: str =None, update_bytes=True):
+        source = "Failed"
+        self.logger.debug("Attempting to load ELF Core")
+        if data is not None:
+            file_obj = self.load_elf_byte(data, filename=filename, update_bytes=update_bytes) 
+        elif zip_filename is not None and self.elf_loader.is_zip(zip_filename):
+            file_obj = self.load_elf_zip(zip_filename, filename=filename, inmemory=self.inmemory)           
+        elif filename is not None:
+            file_obj = self.elf_loader.load_file(filename, inmemory=inmemory)
+
+        if file_obj is not None:
+            source = file_obj.get_source()
+
+        self.logger.debug("Loaded ELF Core from: {}".format(source))
+        if file_obj is None:
+            raise Exception("Unable to load the core file for analysis")
+        return file_obj
+
+    def load_core_elf(self, core_filename: str=None, 
                        core_data: bytes=None,
                        inmemory=False,
                        core_zip_filename: str =None):
         
-        self.source = "Failed"
-        self.logger.debug("Attempting to load ELF Core")
-        if core_data is not None:
-            self.core_io, self.elf = Elf.from_bytes(core_data)
-            self.source = "bytes"
-        elif core_zip_filename is not None and Elf.is_zip(core_zip_filename):
-            self.core_io, self.elf = Elf.from_zip(core_zip_filename, 
-                                                  core_filename, 
-                                                  inmemory)
-            self.source = "zip://{}".format(core_zip_filename)
-            core_filename = self.core_io.name
-        elif core_filename is not None:
-            self.core_io, self.elf = Elf.from_file(core_filename, 
-                                      inmemory)
-            self.source = "file://{}".format(core_filename)
-
-        self.logger.debug("Loaded ELF Core from: {}".format(self.source))
-        if self.core_io is None or self.elf is None:
+        self.core_file_obj = self.load_elf(filename=core_filename,
+                                           data=core_data,
+                                           inmemory=inmemory,
+                                           zip_filename=core_zip_filename)        
+        if self.core_file_obj is None:
+            self.source = "Failed"
+        else:
+            self.source = self.core_file_obj.source
+            self.elf = self.core_file_obj.get_file_interpreter()
+        if self.core_file_obj is None:
             raise Exception("Unable to load the core file for analysis")
 
     def clone_core_io(self):
-        
         if self.source == "Failed":
             raise Exception("Attempting to clone a failed core_io")
-
-        if self.source == "bytes":
-            return Elf.from_bytes(self.core_data)
-
-        else if self.source.find('zip://') > -1:
-            return Elf.from_zip(self.core_zip_filename, 
-                                self.core_filename, 
-                                self.inmemory)
-        else:
-            return Elf.from_file(self.core_filename, self.inmemory)
+        return self.core_file_obj.clone(create_new_file_interp=self.clone_interps)
 
 
 

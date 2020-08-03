@@ -3,7 +3,7 @@ import tempfile
 import io
 import os
 import unittest
-from ca_tk.linux.core import ElfCore
+from ca_tk.linux.core import ELFCore
 from ca_tk.load import Elf
 
 class TestManager(unittest.TestCase):

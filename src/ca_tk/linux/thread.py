@@ -2,7 +2,7 @@ from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import NoteSection
 from ma_tk.manager import Manager
 from st_log.st_log import Logger
-from .. load import Elf
+
 from .core_structures_x86 import *
 from .notes import NTDescToJson
 from .consts import THREAD_MAPPING, FP_REGS
