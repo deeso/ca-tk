@@ -38,6 +38,36 @@ class StitchObject(object):
     def set_loaded(self, loaded=True):
         setattr(self, 'loaded', loaded)
 
+    def get_file_size(self):
+        return self.p_filesz
+
+    def get_mem_size(self):
+        return self.p_memsz
+
+    def get_vm_size(self):
+        return self.vm_end - self.vm_start
+
+    def get_page_offset(self):
+        return self.page_offset
+
+    def get_size(self):
+        if self.get_page_offset() < 0 and \
+           self.vm_start < 0:
+            return self.get_mem_size()
+        return self.get_vm_size()
+
+    def __str__(self):
+        vm_start = getattr(self, 'vm_start')
+        vm_end = getattr(self, 'vm_end')
+        page_offset = getattr(self, 'page_offset')
+        filename = getattr(self, 'filename')
+        size = self.get_size()
+        args = [vm_start, vm_end, page_offset, size, filename]
+        return "{:016x}-{:016x} {:08x} {:08x} {}".format(*args)
+    
+    def __repr__(self):
+        return str(self)
+
 class ELFCore(object):
 
     def __init__(self, core_filename: str=None, 
@@ -132,6 +162,7 @@ class ELFCore(object):
         self.auxv = NTDescToJson.nt_auxv(auxv)
         
         self.stitch_files()
+        self.organize_stitchings()
         if self.auto_load_files:
             self.load_core_segments()
 
@@ -144,6 +175,43 @@ class ELFCore(object):
                     required_files.add(info.filename)
             self.required_files = sorted(required_files)
         return self.required_files
+
+    def organize_stitchings(self):
+        self.loadable_segments = []
+        self.segments_by_file = {name:[] for name in self.get_required_files_list()}
+        self.required_segments_by_file = {name:[] for name in self.get_required_files_list()}
+        self.required_segments = []
+
+        for stitching in self.get_stitching().values():
+            filename = stitching.filename
+            if stitching.vm_start > 0 and \
+               stitching.filename is not None and \
+               stitching.filename.find(b'(deleted)') == -1:
+                self.loadable_segments.append(stitching)
+
+            if filename in self.segments_by_file:
+                self.segments_by_file[filename].append(stitching)
+                if stitching.vm_start > 0 and stitching.page_offset == 0:
+                    self.required_segments_by_file[filename].append(stitching)
+                    self.required_segments.append(stitching)
+
+    def get_required_segments(self):
+        if not hasattr(self, 'required_segments'):
+            # self.required_files = sorted(required_files)
+            self.organize_stitchings()
+        return self.required_segments
+
+    def get_required_segments_by_file(self):
+        if not hasattr(self, 'required_segments_by_file'):
+            # self.required_files = sorted(required_files)
+            self.organize_stitchings()
+        return self.required_segments_by_file
+
+    def get_segments_by_file(self):
+        if not hasattr(self, 'segments_by_file'):
+            # self.required_files = sorted(required_files)
+            self.organize_stitchings()
+        return self.segments_by_file
 
     def get_stitching(self):
         if not hasattr(self, 'stitching'):
@@ -313,31 +381,42 @@ class ELFCore(object):
         get around deeper understanding.
         '''
         self.logger.debug("Stitching together file information")
-        file_info = self.get_files_info()
-        file_addrs = file_info.get('memory_map', [])
-        all_vaddrs = [p.header.p_vaddr for p in self.get_pt_notes()] + \
-                     [f['vm_start'] for f in file_addrs]
+        files_info = self.get_files_info()
+        file_addrs = self.get_files_by_vaddr()
+        ptloads_by_vaddr = self.get_pt_loads_by_vaddr()
+        all_vaddrs = [vaddr for vaddr in ptloads_by_vaddr if vaddr > 0] + \
+                     [vaddr for vaddr in file_addrs if vaddr > 0]
         
         # add the progam header meta data into the vaddr entry
         # the logic is that where the PT_LOAD and NT_FILE 
         # segments align, we'll get a clear picture.  Not always happening
 
         self.stitching = {vaddr: StitchObject() for vaddr in all_vaddrs}
-        for p in self.get_pt_notes():
-            hdr = p.header
-            vaddr = hdr['p_vaddr']
-            self.stitching[vaddr].update(hdr)
+        for vaddr in self.stitching:
+            stitch = self.stitching[vaddr]
+            if vaddr == 0:
+                continue
+            pt_load = ptloads_by_vaddr.get(vaddr, None)
+            file_association = file_addrs.get(vaddr, None)
+            bd = {}
+            vm_size = 0
+            
+            if pt_load is not None:
+                bd.update({k:v for k, v in pt_load.header.items()})
+            if file_association is not None:
+                bd.update({k:v for k,v in file_association.items()})
+                vm_size = file_association['vm_end'] - file_association['vm_start']
+            
 
-        for info in file_addrs:
-            vaddr = info['vm_start']
-            vm_size = info['vm_end'] - info['vm_start']
-            filename = info['filename']
-            self.stitching[vaddr].update(info)
-            self.stitching[vaddr].vm_size = vm_size
-            self.stitching[vaddr].loaded = False
-            self.stitching[vaddr].requires_file = info['page_offset'] == 0
-            if info['page_offset'] == 0:
-                self.stitching[vaddr].loadable = filename.find(b'(deleted)') > -1
+            stitch.update(bd)
+            stitch.vm_size = stitch.vm_end - stitch.vm_start
+            stitch.loaded = False
+            stitch.requires_file = stitch.page_offset <= 0
+
+            
+            if stitch.page_offset == 0:
+                stitch.loadable = stitch.filename.find(b'(deleted)') == -1
+
         return self.stitching
 
     def read_mapping(self):
@@ -433,11 +512,23 @@ class ELFCore(object):
     def get_files_info(self):
         if not hasattr(self, 'files_info'):
             self.file_info = NTDescToJson.nt_file(self.get_file_notes()[0])
+            self.files_by_vaddr = {i['vm_start']:i for i in self.file_info['memory_map']}
         return self.file_info
+
+    def get_files_by_vaddr(self):
+        if not hasattr(self, 'files_by_vaddr'):
+            self.get_files_info()
+        return self.files_by_vaddr
+
+    def get_pt_loads_by_vaddr(self):
+        if not hasattr(self, 'pt_loads_by_vaddr'):
+            self.get_pt_loads_by_vaddr()
+        return self.pt_loads_by_vaddr
 
     def get_pt_loads(self):
         if not hasattr(self, 'pt_loads'):
             self.pt_loads = [i for i in self.segments if i.header.p_type == 'PT_LOAD']
+            self.pt_loads_by_vaddr = {i.header.p_vaddr: i for i in self.pt_loads}
         return self.pt_loads
 
     def contains_physical(self, offset) -> bytes:

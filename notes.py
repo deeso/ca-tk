@@ -104,6 +104,16 @@ FILENAME = 'ipython-core-all.31971'
 ec = ELFCore(core_zip_filename=ZIPFILE_NAME, core_filename=FILENAME, 
              inmemory=True,loglevel=logging.DEBUG)
 
+
+pt_load_vaddr = ec.get_pt_loads_by_vaddr()
+stiching = ec.get_stitching()
+addr = 140312045498368
+stiching[addr].__dict__
+pt_load_vaddr[addr].header
+
+
+
 required_files = ec.get_required_files_list()
 libz = required_files[-1]
 segments = [i for i in ec.get_stitching().values() if i.filename.find(libz) > -1]
+segments_needing_load = [i for i in segments if i.page_offset == 0]

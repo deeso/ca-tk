@@ -31,6 +31,7 @@ class TestDoesItStart(unittest.TestCase):
         segments_needing_load = [i for i in segments if i.page_offset == 0]
         self.assertTrue(len(segments) == 3)
         self.assertTrue(len(segments_needing_load) == 1)
+        
 
 if __name__ == '__main__':
     unittest.main()

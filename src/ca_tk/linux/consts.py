@@ -530,4 +530,5 @@ DEFAULT_MEMORY_META = {
     'loaded': False,
     'loadable': False,
     'requires_file': False,
+    'page_offset': -1
 }
