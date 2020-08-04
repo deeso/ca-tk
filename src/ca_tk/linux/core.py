@@ -2,13 +2,14 @@ import uuid
 import os
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import NoteSection
-from st_log.st_log import Logger
+
 from .core_structures_x86 import *
 from .notes import NTDescToJson
 from .thread import Thread
 from .consts import *
 from .memory import *
 
+from st_log.st_log import Logger
 from ma_tk.manager import Manager
 from ma_tk.load.elf import OpenELF, ElfFileLoader
 from ma_tk.load.file import FileLoader
@@ -85,7 +86,7 @@ class ELFCore(object):
                        other_namespaces=None,
                        auto_load_files=False):
         
-        self.logger = Logger("OpenELFCore", level=loglevel)
+        self.logger = Logger("ca_tk.linux.core.OpenELFCore", level=loglevel)
         self.physical_ranges = []
         self.virtual_ranges = []
         self.load_external_files = load_external_files
@@ -113,7 +114,7 @@ class ELFCore(object):
 
         # map pages to a specific range
         self.virtual_cache = dict()
-        self.mgr = Manager()
+        self.mgr = Manager(loglevel=loglevel)
         # TODO FIXME set the page_mask correctly through parameterization
         self.page_size = 4096
         self.page_mask = self.mgr.page_mask
@@ -176,42 +177,66 @@ class ELFCore(object):
             self.required_files = sorted(required_files)
         return self.required_files
 
+    def add_stitch_page(self, vaddr, stitching):
+        self.page_caches[vaddr&self.page_mask] = stitching
+
+    def has_stitch_page(self, vaddr):
+        return vaddr&self.page_mask in self.page_caches
+
+    def get_stitch_page(self, vaddr):
+        return self.page_caches.get(vaddr & self.page_mask, None)
+
+    def init_stitch_pages(self, va_start, va_end, stitching=None):
+        for vaddr in range(va_start, va_end, self.page_size):
+            self.add_stitch_page(vaddr, stitching)
+
+    def init_stitching_pages(self, stitching):
+        return self.init_stitch_pages(stitching.vm_start, stitching.vm_end, stitching)
+
     def organize_stitchings(self):
-        self.loadable_segments = []
-        self.segments_by_file = {name:[] for name in self.get_required_files_list()}
-        self.required_segments_by_file = {name:[] for name in self.get_required_files_list()}
-        self.required_segments = []
+        self.internal_segments = []
+        self.internal_segments_by_file = {}
+        self.internal_segments_by_vaddr = {}
+        self.external_segments = []
+        self.external_segments_by_file = {}
+        self.external_segments_by_vaddr = {}
+        self.page_caches = {}
 
         for stitching in self.get_stitching().values():
             filename = stitching.filename
-            if stitching.vm_start > 0 and \
-               stitching.filename is not None and \
-               stitching.filename.find(b'(deleted)') == -1:
-                self.loadable_segments.append(stitching)
+            vaddr = stitching.vm_start
+            self.init_stitching_pages(stitching)
 
-            if filename in self.segments_by_file:
-                self.segments_by_file[filename].append(stitching)
-                if stitching.vm_start > 0 and stitching.page_offset == 0:
-                    self.required_segments_by_file[filename].append(stitching)
-                    self.required_segments.append(stitching)
+            if stitching.loadable:
+                self.internal_segments.append(stitching)
+                if filename not in self.internal_segments_by_file:
+                    self.internal_segments_by_file[filename] = []
+                self.internal_segments_by_file[filename].append(stitching)
+                self.internal_segments_by_vaddr[vaddr] = stitching
+            else:
+                self.external_segments.append(stitching)
+                if filename not in self.external_segments_by_file:
+                    self.external_segments_by_file[filename] = []
+                self.external_segments_by_file[filename].append(stitching)
+                self.external_segments_by_vaddr[vaddr] = stitching
 
-    def get_required_segments(self):
-        if not hasattr(self, 'required_segments'):
+    def get_external_segments(self):
+        if not hasattr(self, 'external_segments'):
             # self.required_files = sorted(required_files)
             self.organize_stitchings()
-        return self.required_segments
+        return self.external_segments
 
-    def get_required_segments_by_file(self):
-        if not hasattr(self, 'required_segments_by_file'):
+    def get_external_segments_by_file(self):
+        if not hasattr(self, 'external_segments_by_file'):
             # self.required_files = sorted(required_files)
             self.organize_stitchings()
-        return self.required_segments_by_file
+        return self.external_segments_by_file
 
-    def get_segments_by_file(self):
-        if not hasattr(self, 'segments_by_file'):
+    def get_stitching_by_file(self):
+        if not hasattr(self, 'internal_segments_by_file'):
             # self.required_files = sorted(required_files)
             self.organize_stitchings()
-        return self.segments_by_file
+        return self.internal_segments_by_file
 
     def get_stitching(self):
         if not hasattr(self, 'stitching'):
@@ -256,7 +281,7 @@ class ELFCore(object):
             data = data + b'\x00' * (expected_size - size)
         return data
 
-    def load_core_segment_inmemory(self, stitched_info):
+    def load_stitch_inmemory(self, stitched_info):
         '''
         load an bytes- memory segment using 
         information gathered during the stitching process
@@ -272,32 +297,41 @@ class ELFCore(object):
             elf_info = self.file_loader.load_file(filename, namespace=self.namespace, namespaces=self.other_namespaces)
 
         page_offset = stitched_info.page_offset
-        data_size = stitched_info.vm_size
+        data_size = stitched_info.p_filesz
+        vm_size = stitched_info.vm_size
         va_start = stitched_info.vm_start
         flags = stitched_info.p_flags
         data = None
 
+        ibm = self.mgr.get_map(va_start)
+        # TODO would reload the map here
+        if ibm is not None:
+            return ibm
+
         segment_in_core = lambda info: info.page_offset > 0
         segment_in_elf = lambda info: info.filename in rfiles
         if segment_in_core(stitched_info):
-            core_io.seek(page_offset, os.SEEK_SET)
-            data = core_io.read(data_size)
+            self.core_file_obj.seek(page_offset, os.SEEK_SET)
+            data = self.core_file_obj.read(0, data_size)
         elif elf_info is not None:
             data = self.read_data_elf_info(page_offset, elf_info, expected_size=data_size)
+
 
         if data is not None:
             # map the memory object into the manager for accessiblity
             # update the info indicated it was loaded
-            self.debug("Creating a memory object for the buffer from: {}@{:08x} starting @{:016x}".format(filename, page_offset, vaddr))
-            ibm = self.mgr.add_buffermap(data, va_start, vm_size, 0,
+            if len(data) != data_size:
+                data = data + b'\x00' * (vm_size - len(data))
+            self.logger.debug("Creating a memory object for the buffer from: {}@{:08x} starting @{:016x}".format(filename, page_offset, va_start))
+            ibm = self.mgr.add_buffermap(data, va_start, size=data_size, offset=0,
                                    page_size=4096, filename=filename, 
                                    flags=flags)
             setattr(ibm, 'elf_info', elf_info)
-            setattr(ibm, 'info', info)
-            info['loaded'] = True
+            setattr(ibm, 'info', stitched_info)
+            stitched_info.set_loaded(True)
         return ibm
 
-    def load_core_segment_file(self, stitched_info):
+    def load_stitch_infile(self, stitched_info):
         '''
         load an ioobject memory segment using 
         information gathered during the stitching process
@@ -339,34 +373,49 @@ class ELFCore(object):
             info['loaded'] = True
         return ibm
 
-    def load_core_segment(self, stitched_info):
-        info = self.get_stitching()[0]
+    def load_stitch(self, stitched_info):
         ibm = None
-        if info.vm_start == -1:
-            pass
+        if stitched_info is None or \
+           not stitched_info.loadable or \
+           stitched_info.vm_start == -1:
+            if stitch is not None and not stitch.loadable:
+                self.logger.debug("ELFCore.load_stitch unloadable segment: {}".format(stitch))
+            elif stitch is not None and stitched_info.vm_start == -1:
+                self.logger.debug("ELFCore.load_stitch unloadable segment, bad VA: {}".format(stitch))
+            else:
+                self.logger.debug("ELFCore.load_stitch unloadable segment, bad stitch value: {}".format(stitch))
+            
+            return ibm
         elif self.inmemory:
-            ibm = self.load_core_segment_inmemory(stitched_info)
+            ibm = self.load_stitch_inmemory(stitched_info)
+            print(ibm)
         else:
-            ibm = self.load_core_segment_file(stitched_info)
+            ibm = self.load_stitch_infile(stitched_info)
+
         if ibm is not None:
-            mem_list.append(ibm)
+            stitched_info.set_loaded(True)
         return ibm
 
-    def load_core_segments(self):
-        '''
-        load up segments from the core file or from other files, depending if
-        present for loading.  in memory creates byte objects and io_obj use
-        python IO (much slower)
-        '''
-        inmemory = self.inmemory
-        
+    def load_stitches_by_file(self, filename):
+        stchs = self.get_external_segments_by_file().get(filename, []) + \
+                self.get_external_segments_by_file().get(filename, [])
+
+        return self._load_stitches(stchs)
+
+    def load_stitch_by_vaddr(self, vaddr, stitch=None):
+        if stitch is None:
+            stitch = self.get_stitch_page(vaddr)
+        ibm = self.load_stitch(stitch)
+        return ibm
+
+    def _load_stitches(self, stitch_infos):
         mem_list = []
-        # this will mutate the stitching information to indicate that the
-        # a segment was loaded
-        for info in self.get_stitching():
-            ibm = None
-            # cant load stitched information if the vaddr is badd.
-            self.load_core_segment(info)
+        for info in stitch_infos:
+            ibm = self.load_stitch_by_vaddr(info.vm_start, stitch)
+            if ibm is not None:
+                mem_list.append(ibm)
+            else:
+                self.logger.debug("Failed to load: [{}]".format(info))            
         return mem_list        
         
     def stitch_files(self):
@@ -405,17 +454,14 @@ class ELFCore(object):
                 bd.update({k:v for k, v in pt_load.header.items()})
             if file_association is not None:
                 bd.update({k:v for k,v in file_association.items()})
-                vm_size = file_association['vm_end'] - file_association['vm_start']
-            
+                bd['vm_size'] = file_association['vm_end'] - file_association['vm_start']
+                bd['requires_file'] = file_association['page_offset'] <= 0
+                bd['page_offset'] = file_association['page_offset']
+                bd['loadable'] = bd['page_offset'] >= 0 and \
+                                 file_association['filename'].find(b'(deleted)') == -1
 
             stitch.update(bd)
-            stitch.vm_size = stitch.vm_end - stitch.vm_start
-            stitch.loaded = False
-            stitch.requires_file = stitch.page_offset <= 0
-
-            
-            if stitch.page_offset == 0:
-                stitch.loadable = stitch.filename.find(b'(deleted)') == -1
+            stitch.set_loaded(False)
 
         return self.stitching
 
@@ -619,7 +665,6 @@ class ELFCore(object):
         return self.elf_loader.load_file(data, self.namespace, 
                                          namespaces=self.other_namespaces)
 
-
     def load_elf(self, filename: str=None, 
                        data: bytes=None,
                        inmemory=False,
@@ -663,15 +708,37 @@ class ELFCore(object):
             raise Exception("Attempting to clone a failed core_io")
         return self.core_file_obj.clone(create_new_file_interp=self.clone_interps)
 
+    def check_load(self, vaddr):
+        if self.mgr.check_vaddr(vaddr):
+            return True
 
+        elif not self.has_stitch_page(vaddr):
+            self.logger.debug("ELFCore.check_load {:08x} is unknown".format(vaddr))
+            return False
 
+        stitch = self.get_stitch_page(vaddr)            
+        ibm = self.load_stitch(stitch)
+        if ibm is not None:
+            return True
+        return False
 
+    def read_word(self, vaddr, little_endian=True):
+        return self.mgr.read_word(vaddr, little_endian)
 
+    def read_dword(self, vaddr, little_endian=True):
+        return self.mgr.read_dword(vaddr, little_endian)
 
+    def read_qword(self, vaddr, little_endian=True):
+        return self.mgr.read_qword(vaddr, little_endian)
 
+    def read_at_vaddr(self, vaddr, size=1):
+        return self.mgr.read_at_vaddr(vaddr, size)
 
+    def read(self, size=1):
+        return self.mgr.read(size)
 
+    def read_cstruct(self, vaddr, cstruct):
+        return self.mgr.read_cstruct(cstruct, addr=vaddr)
 
-
-
-
+    def seek(self, vaddr):
+        return self.mgr.seek(addr=vaddr)
